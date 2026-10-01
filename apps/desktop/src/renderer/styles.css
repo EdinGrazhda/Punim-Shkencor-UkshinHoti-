@@ -32,3 +32,23 @@ h2 { max-width: 580px; margin-bottom: 14px; font-size: 35px; line-height: 1.1; }
 .stats article { padding: 22px; border: 1px solid #243b53; border-radius: 15px; background: rgba(18, 33, 49, .8); }
 .stats span, .stats small { display: block; color: #8fa6bc; font-size: 13px; }
 .stats strong { display: block; margin: 10px 0 4px; font-size: 30px; }
+.secondary { padding: 10px 15px; border: 1px solid #4a6b87; border-radius: 9px; color: #d9e7f1; background: #142b40; cursor: pointer; }
+.secondary:disabled { opacity: .6; cursor: wait; }
+.library-layout { display: grid; grid-template-columns: minmax(330px, .78fr) minmax(420px, 1.22fr); gap: 22px; margin-top: 42px; }
+.library-panel, .detail-panel { min-height: 530px; padding: 26px; border: 1px solid #243f5b; border-radius: 18px; background: rgba(12, 29, 45, .78); }
+.section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.section-heading h2, .detail-panel h2 { margin: 0 0 5px; font-size: 25px; }
+.lesson-list { display: grid; gap: 10px; margin-top: 22px; }
+.lesson-card { display: grid; gap: 5px; padding: 15px; border: 1px solid #284863; border-radius: 12px; color: #e9f1f8; background: #10263a; text-align: left; cursor: pointer; }
+.lesson-card:hover, .lesson-card.selected { border-color: #62e2bb; background: #14334a; }
+.lesson-card strong { font-size: 15px; }
+.lesson-card small, .detail-meta { color: #8fa6bc; font-size: 12px; }
+.lesson-type, .source-block > span { color: #62e2bb; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+.blocks { display: grid; gap: 12px; margin-top: 22px; max-height: 425px; overflow: auto; }
+.source-block { padding: 15px; border-left: 3px solid #4dbb9b; border-radius: 8px; background: #10263a; }
+.source-block strong { display: block; margin: 8px 0 4px; color: #dce9f3; }
+.source-block p { margin: 8px 0 0; color: #b9cbd9; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+.empty-state { display: grid; gap: 8px; place-content: center; min-height: 220px; color: #8fa6bc; text-align: center; }
+.empty-state strong { color: #dce9f3; font-size: 17px; }
+.detail-empty { height: 100%; }
+.page-placeholder { margin-top: 42px; border: 1px dashed #31516e; border-radius: 18px; }
