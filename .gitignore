@@ -9,4 +9,5 @@ out/
 *.db-shm
 *.db-wal
 coverage/
+graphify-out/
 .DS_Store

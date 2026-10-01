@@ -36,7 +36,9 @@ RTK repository: https://github.com/rtk-ai/rtk
 
 ## Graphify usage
 
-Graphify is an optional reference/integration for graph visualizations in the teacher reports or mission-progress views. It is not a replacement for the authoritative game server and must not own scoring, persistence, or security decisions.
+The Graphify CLI is a development-only local code graph. After repository code changes, refresh it with `uvx --from graphifyy graphify update . --no-cluster`; this code-only mode uses local AST extraction. Keep the generated `graphify-out/` local and uncommitted. Do not run model-backed extraction on project documents unless explicitly requested.
+
+Separately, Graphify is an optional product integration for graph visualizations in teacher reports or mission-progress views. It is not a replacement for the authoritative game server and must not own scoring, persistence, or security decisions.
 
 Before adding Graphify code, record the exact version, license, bundle impact, and the adapter boundary in `docs/DEPENDENCIES.md`. Keep graph rendering behind a small UI adapter so the core product remains usable without it.
 
