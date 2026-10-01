@@ -28,8 +28,9 @@
 - [x] Added runtime-compatible `GameSnapshot` and `ApprovedQuestion` contracts for Edin's host.
 - [x] Add normalization/block unit tests and a `TEST_DATABASE_URL`-gated PostgreSQL repository integration test.
 - [ ] Add parser fixtures for TXT, Markdown, PDF, and DOCX extraction.
-- [ ] Lessons listing/detail and quiz repository UI wiring.
-- [ ] OpenAI generation service.
+- [x] Lessons listing/detail and generated quiz draft listing wired to PostgreSQL repositories.
+- [x] OpenAI Responses API generation service with strict structured output, source-quote evidence mapping, prompt/model tracking, and failed-job reporting.
+- [x] Lesson detail can generate persisted quiz drafts; quizzes remain in `needs-review` until the teacher review workflow is implemented.
 - [ ] Teacher review workflow.
 
 ## Branch status

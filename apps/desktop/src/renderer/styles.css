@@ -52,3 +52,7 @@ h2 { max-width: 580px; margin-bottom: 14px; font-size: 35px; line-height: 1.1; }
 .empty-state strong { color: #dce9f3; font-size: 17px; }
 .detail-empty { height: 100%; }
 .page-placeholder { margin-top: 42px; border: 1px dashed #31516e; border-radius: 18px; }
+.generation-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
+.generation-controls select { border: 1px solid #31516e; border-radius: 10px; background: #0d1b2a; color: #e8f1fa; padding: 10px 12px; }
+.generation-controls label { color: #a8bbce; font-size: 13px; }
+.quiz-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 30px; }

@@ -3,8 +3,9 @@ import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDatabase, createRepositories } from "@ckadinti/database";
-import { lessonIdSchema, lessonImportResultSchema, lessonListItemSchema } from "@ckadinti/contracts";
+import { generateQuizRequestSchema, lessonIdSchema, lessonImportResultSchema, lessonListItemSchema } from "@ckadinti/contracts";
 import { importLessonFile } from "./services/lesson-import.js";
+import { generateQuizFromLesson } from "./services/quiz-generation.js";
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDirectory = path.dirname(currentFile);
@@ -59,6 +60,24 @@ function registerIpc(): void {
       return { ok: true, data };
     } catch (error) {
       return { ok: false, error: { code: "LESSON_READ_FAILED", message: error instanceof Error ? error.message : "Could not load lesson." } };
+    }
+  });
+
+  ipcMain.handle("teacher:list-quizzes", async () => {
+    try {
+      return { ok: true, data: await getRepositories().quizzes.list() };
+    } catch (error) {
+      return { ok: false, error: { code: "QUIZ_LIST_FAILED", message: error instanceof Error ? error.message : "Could not load quizzes." } };
+    }
+  });
+
+  ipcMain.handle("teacher:generate-quiz", async (_event, value: unknown) => {
+    const parsed = generateQuizRequestSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_GENERATION_REQUEST", message: "Choose a lesson and request between 3 and 20 questions." } };
+    try {
+      return { ok: true, data: await generateQuizFromLesson(parsed.data.lessonId, parsed.data.questionCount, getRepositories()) };
+    } catch (error) {
+      return { ok: false, error: { code: "QUIZ_GENERATION_FAILED", message: error instanceof Error ? error.message : "Quiz generation failed." } };
     }
   });
 }

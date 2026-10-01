@@ -268,8 +268,8 @@ export function createRepositories(db: Database) {
       return job;
     },
 
-    async updateStatus(id: string, status: string, errorMessage?: string | null) {
-      const [job] = await db.update(schema.aiGenerationJobs).set({ status, errorMessage: errorMessage ?? null, updatedAt: new Date() })
+    async updateStatus(id: string, status: string, errorMessage?: string | null, quizId?: string | null) {
+      const [job] = await db.update(schema.aiGenerationJobs).set({ status, errorMessage: errorMessage ?? null, ...(quizId !== undefined ? { quizId } : {}), updatedAt: new Date() })
         .where(eq(schema.aiGenerationJobs.id, id)).returning();
       return job ?? null;
     },

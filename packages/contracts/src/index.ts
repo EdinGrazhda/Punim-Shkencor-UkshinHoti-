@@ -30,6 +30,10 @@ export const lessonImportResultSchema = z.object({
   duplicate: z.boolean(),
 });
 export const lessonIdSchema = z.string().uuid();
+export const generateQuizRequestSchema = z.object({
+  lessonId: lessonIdSchema,
+  questionCount: z.number().int().min(3).max(20).default(8),
+});
 
 export const questionKindSchema = z.enum(["multiple-choice", "true-false"]);
 export const difficultySchema = z.enum(["easy", "medium", "hard"]);
@@ -58,6 +62,24 @@ export const quizGenerationResultSchema = z.object({
   questions: z.array(generatedQuestionSchema).min(1).max(50),
 });
 export type QuizGenerationResult = z.infer<typeof quizGenerationResultSchema>;
+
+// Provider-facing shape uses block-relative citations; the desktop resolves quotes
+// to absolute source offsets before applying generatedQuestionSchema.
+export const modelQuizOutputSchema = z.object({
+  title: z.string(),
+  language: z.string(),
+  difficulty: difficultySchema,
+  questions: z.array(z.object({
+    kind: questionKindSchema,
+    prompt: z.string(),
+    explanation: z.string(),
+    topic: z.string(),
+    difficulty: difficultySchema,
+    confidence: z.enum(["low", "medium", "high"]),
+    options: z.array(z.object({ text: z.string(), isCorrect: z.boolean() })),
+    evidence: z.array(z.object({ blockOrdinal: z.number().int().nonnegative(), quote: z.string() })),
+  })),
+});
 
 // Runtime-compatible approved quiz contract. Edin's host consumes this shape
 // when an approved teacher quiz becomes a game snapshot.
