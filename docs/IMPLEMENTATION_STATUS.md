@@ -13,6 +13,16 @@
 - [ ] Student browser flow.
 - [ ] CI and packaging smoke test.
 
+## Arron progress
+
+- [x] pnpm workspace and Electron Forge teacher shell scaffolded.
+- [x] Secure main/preload boundary with lesson file-picker IPC added.
+- [x] Shared Zod lesson, quiz, generation, and review contracts added.
+- [x] Drizzle SQLite schema added for Arron-owned lesson/quiz/content tables.
+- [ ] Lesson parser implementations.
+- [ ] OpenAI generation service.
+- [ ] Teacher review workflow.
+
 ## Branch status
 
 - `main`: shared documentation and integration baseline.
