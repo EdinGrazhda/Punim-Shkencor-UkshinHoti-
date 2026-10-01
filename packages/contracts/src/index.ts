@@ -59,6 +59,52 @@ export const quizGenerationResultSchema = z.object({
 });
 export type QuizGenerationResult = z.infer<typeof quizGenerationResultSchema>;
 
+// Runtime-compatible approved quiz contract. Edin's host consumes this shape
+// when an approved teacher quiz becomes a game snapshot.
+export const SessionPhase = z.enum(["lobby", "question", "reveal", "paused", "ended"]);
+export type SessionPhase = z.infer<typeof SessionPhase>;
+
+export const ApprovedQuestion = z.object({
+  id: z.string().min(1),
+  prompt: z.string().min(1),
+  options: z.array(z.string().min(1)).min(2).max(6),
+  correctOption: z.number().int().nonnegative(),
+  timeLimitMs: z.number().int().positive().max(10 * 60_000),
+}).superRefine((question, context) => {
+  if (question.correctOption >= question.options.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "correctOption is out of range" });
+  }
+});
+export type ApprovedQuestion = z.infer<typeof ApprovedQuestion>;
+
+export const GameSnapshot = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  questions: z.array(ApprovedQuestion).min(1),
+});
+export type GameSnapshot = z.infer<typeof GameSnapshot>;
+
+export const gameSnapshotFromApprovedQuestions = (input: {
+  id: string;
+  title: string;
+  questions: Array<{
+    id: string;
+    prompt: string;
+    options: Array<{ text: string; isCorrect: boolean }>;
+    timeLimitMs?: number;
+  }>;
+}): GameSnapshot => GameSnapshot.parse({
+  id: input.id,
+  title: input.title,
+  questions: input.questions.map((question) => ({
+    id: question.id,
+    prompt: question.prompt,
+    options: question.options.map((option) => option.text),
+    correctOption: question.options.findIndex((option) => option.isCorrect),
+    timeLimitMs: question.timeLimitMs ?? 30_000,
+  })),
+});
+
 export const reviewQuestionUpdateSchema = z.object({
   questionId: z.string().uuid(),
   prompt: z.string().trim().min(1).max(1000).optional(),

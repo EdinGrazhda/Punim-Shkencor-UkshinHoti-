@@ -25,6 +25,7 @@
 - [x] PostgreSQL lesson, quiz, question, and generation-job repository operations scaffolded.
 - [x] Import TXT, Markdown, PDF, and DOCX lessons with text normalization, evidence blocks, and content deduplication.
 - [x] Validated IPC for importing and listing persisted lessons; renderer no longer receives file paths.
+- [x] Added runtime-compatible `GameSnapshot` and `ApprovedQuestion` contracts for Edin's host.
 - [x] Add normalization/block unit tests and a `TEST_DATABASE_URL`-gated PostgreSQL repository integration test.
 - [ ] Add parser fixtures for TXT, Markdown, PDF, and DOCX extraction.
 - [ ] Lessons listing/detail and quiz repository UI wiring.

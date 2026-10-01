@@ -83,7 +83,7 @@ This plan is based on the attached research report. The research report original
 ## Shared integration rules
 
 - PostgreSQL is the shared persistence engine. Arron owns lesson/quiz table families; Edin owns game/session/result table families. A migration touching both requires a joint review.
-- Arron publishes approved quiz snapshots through `packages/contracts`; Edin consumes them and must not reimplement teacher review logic.
+- Arron publishes approved quiz snapshots through `packages/contracts` using Edin-compatible `GameSnapshot` and `ApprovedQuestion` names; Edin consumes them and must not reimplement teacher review logic.
 - Edin publishes game events and analytics DTOs; Arron consumes them for reports and must not recalculate authoritative scores in the UI.
 - Keep Graphify optional and adapter-based. Keep RTK in the developer workflow, not the product runtime.
 - Merge order: repository foundation on `main`, then Arron and Edin milestones independently, then an integration PR that runs end-to-end tests.

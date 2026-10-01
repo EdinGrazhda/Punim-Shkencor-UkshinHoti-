@@ -59,9 +59,9 @@ function TeacherApp(): JSX.Element {
         </header>
         <section className="hero-card">
           <div>
-            <p className="eyebrow accent">Start a lesson</p>
-            <h2>Turn your lesson into a reviewed classroom quiz.</h2>
-            <p>Import a lesson, generate draft questions, review every item, then host a LAN game.</p>
+            <p className="eyebrow accent">Prepare a Cyber Raid</p>
+            <h2>Turn your lesson into a reviewed classroom mission.</h2>
+            <p>Import a lesson, generate draft questions, review every item, then host a Cyber Raid over your LAN.</p>
             <button className="primary" disabled={importing} onClick={chooseLesson} type="button">{importing ? "Importing..." : "Import lesson"}</button>
             {notice && <p className="file-note" role="status">{notice}</p>}
             {error && <p className="error-note" role="alert">{error}</p>}
