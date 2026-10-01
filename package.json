@@ -4,7 +4,7 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "tsc -b",
-    "test": "tsc -b --pretty false && node packages/runtime-host/dist/session.smoke.js",
+    "test": "tsc -b --pretty false && node packages/runtime-host/dist/session.smoke.js && node packages/runtime-host/dist/rest.smoke.js",
     "typecheck": "tsc -b --pretty false",
     "dev:student": "vite --config apps/student/vite.config.ts",
     "dev:host": "tsx packages/runtime-host/src/index.ts"

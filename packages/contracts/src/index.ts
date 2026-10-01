@@ -6,6 +6,7 @@ export type SessionPhase = z.infer<typeof SessionPhase>;
 export const Player = z.object({
   id: z.string().min(1),
   displayName: z.string().trim().min(1).max(32),
+  emblem: z.string().trim().min(1).max(32).optional(),
   connected: z.boolean(),
   joinedAt: z.number().int().nonnegative(),
 });
@@ -17,6 +18,7 @@ export const ApprovedQuestion = z.object({
   options: z.array(z.string().min(1)).min(2).max(6),
   correctOption: z.number().int().nonnegative(),
   timeLimitMs: z.number().int().positive().max(10 * 60_000),
+  explanation: z.string().optional(),
 }).superRefine((q, ctx) => {
   if (q.correctOption >= q.options.length) ctx.addIssue({ code: "custom", message: "correctOption is out of range" });
 });
@@ -29,13 +31,19 @@ export const GameSnapshot = z.object({
 });
 export type GameSnapshot = z.infer<typeof GameSnapshot>;
 
-export const JoinRequest = z.object({ displayName: Player.shape.displayName });
+export const JoinRequest = z.object({ displayName: Player.shape.displayName, emblem: Player.shape.emblem });
+export const SessionCodeParam = z.object({ code: z.string().trim().length(6) });
+export const CreateSessionRequest = z.object({ code: z.string().trim().length(6).optional(), snapshot: GameSnapshot });
+export const ReconnectRequest = z.object({ playerId: Player.shape.id });
 export const AnswerRequest = z.object({
   questionIndex: z.number().int().nonnegative(),
   optionIndex: z.number().int().nonnegative(),
   idempotencyKey: z.string().uuid(),
 });
 export type AnswerRequest = z.infer<typeof AnswerRequest>;
+export const HttpAnswerRequest = AnswerRequest.extend({ playerId: Player.shape.id });
+export type HttpAnswerRequest = z.infer<typeof HttpAnswerRequest>;
+export const HttpCommandRequest = z.object({ command: z.unknown() });
 export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("start") }),
   z.object({ type: z.literal("pause") }),
@@ -43,6 +51,8 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("end") }),
   z.object({ type: z.literal("lock-lobby"), locked: z.boolean() }),
   z.object({ type: z.literal("kick"), playerId: z.string().min(1) }),
+  z.object({ type: z.literal("reveal") }),
+  z.object({ type: z.literal("next") }),
 ]);
 export type HostCommand = z.infer<typeof HostCommand>;
 
@@ -51,17 +61,20 @@ export const PublicQuestion = z.object({
   prompt: z.string(),
   options: z.array(z.string()),
   deadlineAt: z.number().int().positive(),
+  timeLimitMs: z.number().int().positive(),
 });
 export type PublicQuestion = z.infer<typeof PublicQuestion>;
 
 export const PublicSessionState = z.object({
   code: z.string().length(6),
+  questionCount: z.number().int().positive(),
   phase: SessionPhase,
   lobbyLocked: z.boolean(),
   players: z.array(Player),
   question: PublicQuestion.optional(),
   questionIndex: z.number().int().nonnegative().optional(),
   answeredCount: z.number().int().nonnegative(),
+  reveal: z.object({ correctOption: z.number().int().nonnegative(), explanation: z.string().optional() }).optional(),
 });
 export type PublicSessionState = z.infer<typeof PublicSessionState>;
 

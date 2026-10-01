@@ -1,0 +1,13 @@
+import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import * as SwitchPrimitive from "@radix-ui/react-switch";
+import { motion } from "framer-motion";
+import { cn } from "./utils";
+
+export function Button({ className, variant = "primary", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "light" | "ghost" | "danger" | "outline" }) { return <button className={cn("ui-button", `ui-button-${variant}`, className)} {...props} />; }
+export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) { return <div className={cn("ui-card", className)} {...props} />; }
+export function Badge({ children, className }: { children: ReactNode; className?: string }) { return <span className={cn("ui-badge", className)}>{children}</span>; }
+export function Input(props: InputHTMLAttributes<HTMLInputElement>) { return <input className={cn("ui-input", props.className)} {...props} />; }
+export function Progress({ value, className }: { value: number; className?: string }) { return <div className={cn("ui-progress", className)}><motion.div className="ui-progress-fill" initial={false} animate={{ width: `${Math.max(0, Math.min(100, value))}%` }} transition={{ duration: .35 }} /></div>; }
+export function Switch({ checked, onCheckedChange, label }: { checked: boolean; onCheckedChange: (value: boolean) => void; label: string }) { return <label className="switch-row"><span>{label}</span><SwitchPrimitive.Root className="ui-switch" checked={checked} onCheckedChange={onCheckedChange} aria-label={label}><SwitchPrimitive.Thumb className="ui-switch-thumb" /></SwitchPrimitive.Root></label>; }
+export function ConfirmDialog({ trigger, title, description, confirm, onConfirm }: { trigger: ReactNode; title: string; description: string; confirm: string; onConfirm: () => void }) { return <DialogPrimitive.Root><DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger><DialogPrimitive.Portal><DialogPrimitive.Overlay className="dialog-overlay" /><DialogPrimitive.Content className="dialog-content"><DialogPrimitive.Title>{title}</DialogPrimitive.Title><DialogPrimitive.Description>{description}</DialogPrimitive.Description><div className="dialog-actions"><DialogPrimitive.Close asChild><Button variant="ghost">Cancel</Button></DialogPrimitive.Close><DialogPrimitive.Close asChild><Button variant="danger" onClick={onConfirm}>{confirm}</Button></DialogPrimitive.Close></div></DialogPrimitive.Content></DialogPrimitive.Portal></DialogPrimitive.Root>; }

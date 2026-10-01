@@ -1,32 +1,23 @@
 # Agent workflow
 
-These rules apply to every Codex task in this repository.
+These rules apply to every Codex task in this checkout. This repository contains both the Python Graphify project and the TypeScript CkaDinTi classroom application; inspect the relevant subproject before acting.
 
-## Repository identity
+## Instructions for every task
 
-This checkout is the Graphify Python project. Do not treat it as the CkaDinTi classroom application unless the user explicitly changes the repository or provides a CkaDinTi checkout.
+- Read this `AGENTS.md` before starting work and follow the instructions that apply to the user's request.
+- Preserve existing user changes and avoid modifying unrelated files.
+- Use RTK for every terminal command. Start supported commands with the relevant wrapper (`rtk git`, `rtk rg`, `rtk read`, `rtk test`, `rtk pnpm`, and so on). For commands without a wrapper, use `rtk proxy <command> ...`.
+- Preserve command exit codes and report failures accurately; never claim a command succeeded based only on compressed output.
 
-## Graphify knowledge graph
+## Automatic Graphify updates
 
-- Before answering architecture or codebase questions, read `graphify-out/GRAPH_REPORT.md` when it exists. If `graphify-out/wiki/index.md` exists, use the wiki to navigate the codebase before opening large numbers of raw files.
-- After making code changes, refresh the local graph before handing back the work:
-
-  ```bash
-  python3 -c "from graphify.watch import _rebuild_code; from pathlib import Path; _rebuild_code(Path('.'))"
-  ```
-
-- After changing documentation, PDFs, images, or other non-code sources, run `graphify . --update` when the Graphify CLI and its semantic dependencies are available. If they are unavailable, report that the semantic graph update is pending; do not pretend it ran.
-- Do not place `graphify-out/` generated artifacts, API keys, or personal data into commits unless the user explicitly requests them.
-- A prompt by itself is not a filesystem event. Graph updates are required after material file changes, not after every conversational message with no repository change.
-
-## RTK terminal workflow
-
-- Prefer RTK wrappers for repository inspection and test output to reduce terminal tokens: `rtk git`, `rtk rg`, `rtk read`, and `rtk test`.
-- When a direct command is needed because RTK does not support it, use the narrowest direct command and explain the fallback briefly.
-- Before relying on automatic RTK interception, verify that RTK is initialized (`rtk status` or the equivalent available command). Do not claim all commands are RTK-optimized when the shell hook is not installed.
-- Never hide command failures behind RTK output compression; preserve the actual exit status and report failures.
+- The Graphify knowledge graph must be refreshed automatically whenever source files change. The `ckadinti-graphify.service` user service runs `python3 -m graphify.watch .` and watches this checkout.
+- At the start of a task that changes files, verify the watcher with `rtk proxy systemctl --user is-active ckadinti-graphify.service`. If it is inactive, start it with `rtk proxy systemctl --user start ckadinti-graphify.service`.
+- If user services are unavailable, run the one-shot code refresh after edits with `rtk proxy python3 -c "from graphify.watch import _rebuild_code; from pathlib import Path; _rebuild_code(Path('.'))"`.
+- Before answering architecture or codebase questions, read `graphify-out/GRAPH_REPORT.md` when present. Use `graphify-out/wiki/index.md` when present to navigate further.
+- Do not commit `graphify-out/`, API keys, or personal data unless explicitly requested. Semantic extraction for documents and images may remain pending when no LLM API key is configured; report that accurately.
 
 ## Verification
 
-- Run the smallest relevant test suite after each material implementation change.
-- Include the graph refresh and test result in the final handoff.
+- Run the smallest relevant tests after implementation changes.
+- At handoff, report test results and whether the automatic or fallback Graphify refresh succeeded or remains pending.

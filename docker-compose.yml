@@ -1,4 +1,18 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ckadinti
+      POSTGRES_USER: ckadinti
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ckadinti-local-only}
+    volumes:
+      - teacher_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ckadinti -d ckadinti"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   runtime-host:
     build:
       context: .
@@ -7,6 +21,10 @@ services:
       - "4310:4310"
     environment:
       PORT: "4310"
+      DATABASE_URL: postgres://ckadinti:${POSTGRES_PASSWORD:-ckadinti-local-only}@postgres:5432/ckadinti
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4310/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -22,3 +40,6 @@ services:
     depends_on:
       runtime-host:
         condition: service_healthy
+
+volumes:
+  teacher_data:

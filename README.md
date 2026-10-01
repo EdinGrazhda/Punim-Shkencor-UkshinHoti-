@@ -2,6 +2,18 @@
 
 > The Docker files in this checkout are for the separate TypeScript classroom runtime under `apps/` and `packages/`. They do not package the Python Graphify CLI.
 
+## CkaDinTi classroom preview
+
+The student, teacher, admin, and projector interfaces live in `apps/student`; the Fastify/Socket.IO game runtime lives in `packages/runtime-host`. Start the app and PostgreSQL with `docker compose up -d --build`, then open the [landing page](http://localhost:4173/). Teachers sign in to create the five-question Cyber Security Basics sample, share its code or QR link, start the game, reveal answers, and end it. Students enter their name, then the code—no account required. The runtime API is available at `http://localhost:4310/api/v1`.
+
+There is no public teacher registration. To create the first administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.com "School Admin"` and save the randomly generated password shown once in the terminal. Then sign in at [Admin sign in](http://localhost:4173/admin/login). The admin panel can create teacher accounts and see the teacher directory and current games. Each new teacher receives a generated temporary password, shown once to the admin; teachers must replace it on their first sign-in at [Teacher sign in](http://localhost:4173/login). Do not reuse the example admin email for a real deployment.
+
+Run `npm run typecheck` and `npm test` for contract/runtime checks. Admin/teacher accounts and login sessions persist in the Docker PostgreSQL volume (`teacher_data`); live games and scores are still in memory and disappear when the runtime container restarts. The default PostgreSQL password in `docker-compose.yml` is for local development only: set `POSTGRES_PASSWORD` before sharing or deploying this stack. Teacher review, AI quiz generation, and lesson ingestion are not yet connected. The Python Graphify project below is separate from this classroom app.
+
+### Agent automation
+
+`AGENTS.md` requires Codex terminal commands to use RTK wrappers (or `rtk proxy` for unsupported commands). This is an agent instruction, not a shell-wide rewrite of commands you type yourself. The enabled `ckadinti-graphify.service` watches this checkout for saved file changes and refreshes the code graph/report automatically. Check it with `systemctl --user status ckadinti-graphify.service`; its logs are available through `journalctl --user -u ckadinti-graphify.service`. Semantic extraction of changed docs/images also runs automatically when an LLM API key is available to the service through `~/.config/ckadinti/graphify.env`; otherwise `graphify-out/needs_update` records that it is pending.
+
 [![CI](https://github.com/safishamsi/graphify/actions/workflows/ci.yml/badge.svg?branch=v1)](https://github.com/safishamsi/graphify/actions/workflows/ci.yml)
 
 **A Claude Code skill.** Type `/graphify` in Claude Code - it reads your files, builds a knowledge graph, and gives you back structure you didn't know was there.

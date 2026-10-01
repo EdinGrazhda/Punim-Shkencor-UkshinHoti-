@@ -1,9 +1,37 @@
-import React, { useState } from "react";
+import React from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Student } from "./Student";
+import { Projector, Teacher } from "./Teacher";
+import { ChangePassword, Landing, StudentName, TeacherAuth } from "./Entry";
+import { AdminPanel } from "./Admin";
+import { api, type TeacherIdentity } from "./api";
 import "./styles.css";
 
-function StudentApp() {
-  const [joined, setJoined] = useState(false); const [name, setName] = useState(""); const [code, setCode] = useState("");
-  return <main><section className="card"><p className="eyebrow">CKADINTI · CLASSROOM RAID</p><h1>{joined ? "You’re in." : "Join the mission"}</h1>{joined ? <><p className="muted">Waiting for your teacher to start the round.</p><div className="code">{code.toUpperCase()}</div><p className="muted">Keep this tab open. Your progress will reconnect if your Wi-Fi blinks.</p></> : <form onSubmit={(e) => { e.preventDefault(); if (name.trim() && code.trim()) setJoined(true); }}><label>Mission code<input value={code} onChange={e => setCode(e.target.value)} placeholder="ABC123" maxLength={6} /></label><label>Display name<input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" maxLength={32} /></label><button>Enter lobby</button></form>}</section></main>;
+function AccountGate({ role }: { role: "teacher" | "admin" }) {
+  const navigate = useNavigate();
+  const [ready, setReady] = useState(false);
+  const [auth] = useState<TeacherIdentity | null>(() => { try { return JSON.parse(localStorage.getItem("ckadinti-teacher") ?? "null") as TeacherIdentity | null; } catch { return null; } });
+  useEffect(() => {
+    if (!auth?.token) { navigate("/login", { replace: true }); return; }
+    let active = true;
+    api.teacherMe(auth.token).then(async ({ teacher }) => {
+      if (!active) return;
+      if (teacher.role !== role) { navigate(teacher.role === "admin" ? "/admin" : "/teacher", { replace: true }); return; }
+      if (role === "teacher") {
+        if (teacher.mustChangePassword) { navigate("/change-password", { replace: true }); return; }
+        const session = await api.teacherSession(auth.token);
+        if (!active) return;
+        if (session.session) localStorage.setItem("ckadinti-host", JSON.stringify({ code: session.session.code, token: session.session.token }));
+        else localStorage.removeItem("ckadinti-host");
+      }
+      setReady(true);
+    }).catch(() => { if (active) { localStorage.removeItem("ckadinti-teacher"); localStorage.removeItem("ckadinti-host"); navigate(role === "admin" ? "/admin/login" : "/login", { replace: true }); } });
+    return () => { active = false; };
+  }, [auth?.token, navigate, role]);
+  async function logout() { if (auth?.token) await api.logoutTeacher(auth.token).catch(() => undefined); localStorage.removeItem("ckadinti-teacher"); localStorage.removeItem("ckadinti-host"); navigate("/", { replace: true }); }
+  return ready && auth ? <>{role === "teacher" ? <><Teacher /><button className="teacher-logout" onClick={() => void logout()}>Log out</button></> : <AdminPanel auth={auth} onLogout={() => void logout()} />}</> : <div className="auth-loading">Opening your workspace…</div>;
 }
-createRoot(document.getElementById("root")!).render(<React.StrictMode><StudentApp /></React.StrictMode>);
+
+createRoot(document.getElementById("root")!).render(<React.StrictMode><BrowserRouter><Routes><Route path="/" element={<Landing />} /><Route path="/login" element={<TeacherAuth kind="teacher" />} /><Route path="/admin/login" element={<TeacherAuth kind="admin" />} /><Route path="/change-password" element={<ChangePassword />} /><Route path="/register" element={<Navigate to="/login" replace />} /><Route path="/join" element={<StudentName />} /><Route path="/play" element={<Student />} /><Route path="/teacher" element={<AccountGate role="teacher" />} /><Route path="/admin" element={<AccountGate role="admin" />} /><Route path="/projector" element={<Projector />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></BrowserRouter></React.StrictMode>);
