@@ -6,8 +6,8 @@
 - [x] Shared agent instructions added.
 - [x] Non-overlapping Arron/Edin task split added.
 - [x] Graphify and RTK references recorded.
-- [ ] Monorepo scaffold.
-- [ ] Shared contracts.
+- [x] Monorepo scaffold.
+- [x] Shared contracts.
 - [ ] Teacher content pipeline.
 - [ ] Authoritative game host.
 - [ ] Student browser flow.
@@ -21,8 +21,13 @@
 - [x] Drizzle PostgreSQL schema added for Arron-owned lesson/quiz/content tables.
 - [x] PostgreSQL client and Drizzle migration commands configured.
 - [x] Generate the initial PostgreSQL SQL migration.
-- [ ] Apply and validate migrations against a PostgreSQL instance; add persistence integration tests.
-- [ ] Lesson parser implementations.
+- [ ] Apply migrations against PostgreSQL and run repository integration tests.
+- [x] PostgreSQL lesson, quiz, question, and generation-job repository operations scaffolded.
+- [x] Import TXT, Markdown, PDF, and DOCX lessons with text normalization, evidence blocks, and content deduplication.
+- [x] Validated IPC for importing and listing persisted lessons; renderer no longer receives file paths.
+- [x] Add normalization/block unit tests and a `TEST_DATABASE_URL`-gated PostgreSQL repository integration test.
+- [ ] Add parser fixtures for TXT, Markdown, PDF, and DOCX extraction.
+- [ ] Lessons listing/detail and quiz repository UI wiring.
 - [ ] OpenAI generation service.
 - [ ] Teacher review workflow.
 

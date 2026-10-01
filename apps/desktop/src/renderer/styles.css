@@ -21,7 +21,9 @@ h2 { max-width: 580px; margin-bottom: 14px; font-size: 35px; line-height: 1.1; }
 .hero-card p:not(.eyebrow):not(.file-note) { max-width: 575px; color: #b9cbd9; line-height: 1.6; }
 .accent { color: #55ddb5; }
 .primary { margin-top: 15px; padding: 12px 18px; border: 0; border-radius: 9px; color: #092018; background: #62e2bb; font-weight: 750; cursor: pointer; }
+.primary:disabled { opacity: .65; cursor: wait; }
 .file-note { margin-top: 14px; color: #8fa6bc; font-size: 12px; overflow-wrap: anywhere; }
+.error-note { margin-top: 14px; color: #ff9b9b; font-size: 13px; }
 .mission-art { display: grid; align-content: center; gap: 14px; width: 230px; color: #76e5c4; font-size: 11px; letter-spacing: .16em; }
 .mission-art span { padding: 13px 15px; border: 1px solid #397b72; border-radius: 8px; background: #0e2835; box-shadow: 0 0 24px rgba(89, 220, 183, .1); }
 .mission-art span:nth-child(2) { transform: translateX(24px); }

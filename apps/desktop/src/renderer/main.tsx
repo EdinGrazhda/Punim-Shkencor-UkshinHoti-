@@ -1,14 +1,39 @@
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import type { JSX } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 function TeacherApp(): JSX.Element {
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [lessonCount, setLessonCount] = useState(0);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    void window.teacherBridge.listLessons().then((result) => {
+      if (result.ok && result.data) setLessonCount(result.data.length);
+      else if (result.error) setError(result.error.message);
+    }).catch(() => setError("Could not connect to the local PostgreSQL database."));
+  }, []);
 
   async function chooseLesson(): Promise<void> {
-    const file = await window.teacherBridge.selectLessonFile();
-    setSelectedFile(file);
+    setImporting(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await window.teacherBridge.importLesson();
+      if (!result.ok) {
+        setError(result.error?.message ?? "Lesson import failed.");
+      } else if (result.data) {
+        const lessons = await window.teacherBridge.listLessons();
+        if (lessons.ok && lessons.data) setLessonCount(lessons.data.length);
+        setNotice(result.data.duplicate ? "This lesson was already in your library." : `Imported “${result.data.lesson.title}”.`);
+      }
+    } catch {
+      setError("Could not connect to PostgreSQL. Check DATABASE_URL and try again.");
+    } finally {
+      setImporting(false);
+    }
   }
 
   return (
@@ -37,13 +62,14 @@ function TeacherApp(): JSX.Element {
             <p className="eyebrow accent">Start a lesson</p>
             <h2>Turn your lesson into a reviewed classroom quiz.</h2>
             <p>Import a lesson, generate draft questions, review every item, then host a LAN game.</p>
-            <button className="primary" onClick={chooseLesson} type="button">Import lesson</button>
-            {selectedFile && <p className="file-note">Selected: {selectedFile}</p>}
+            <button className="primary" disabled={importing} onClick={chooseLesson} type="button">{importing ? "Importing..." : "Import lesson"}</button>
+            {notice && <p className="file-note" role="status">{notice}</p>}
+            {error && <p className="error-note" role="alert">{error}</p>}
           </div>
           <div className="mission-art" aria-hidden="true"><span>UPLINK</span><span>FIREWALL</span><span>DATA NODE</span></div>
         </section>
         <section className="stats" aria-label="Workspace summary">
-          <article><span>Lessons</span><strong>0</strong><small>Ready to import</small></article>
+          <article><span>Lessons</span><strong>{lessonCount}</strong><small>In your library</small></article>
           <article><span>Draft quizzes</span><strong>0</strong><small>Awaiting review</small></article>
           <article><span>Game sessions</span><strong>0</strong><small>Hosted locally</small></article>
         </section>

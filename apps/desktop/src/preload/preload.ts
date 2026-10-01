@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("teacherBridge", {
-  selectLessonFile: (): Promise<string | null> =>
-    ipcRenderer.invoke("teacher:select-lesson-file"),
+  importLesson: () => ipcRenderer.invoke("teacher:import-lesson"),
+  listLessons: () => ipcRenderer.invoke("teacher:list-lessons"),
+  getLesson: (id: string) => ipcRenderer.invoke("teacher:get-lesson", id),
 });

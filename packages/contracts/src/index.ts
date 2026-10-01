@@ -13,6 +13,24 @@ export const lessonImportRequestSchema = z.object({
 });
 export type LessonImportRequest = z.infer<typeof lessonImportRequestSchema>;
 
+export const lessonListItemSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  subject: z.string().nullable(),
+  language: z.string(),
+  sourceType: lessonSourceTypeSchema,
+  originalFilename: z.string().nullable(),
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+export type LessonListItem = z.infer<typeof lessonListItemSchema>;
+
+export const lessonImportResultSchema = z.object({
+  lesson: lessonListItemSchema,
+  duplicate: z.boolean(),
+});
+export const lessonIdSchema = z.string().uuid();
+
 export const questionKindSchema = z.enum(["multiple-choice", "true-false"]);
 export const difficultySchema = z.enum(["easy", "medium", "hard"]);
 export const reviewStatusSchema = z.enum(["draft", "needs-review", "approved", "rejected"]);
