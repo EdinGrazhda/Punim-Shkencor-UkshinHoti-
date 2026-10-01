@@ -1,0 +1,23 @@
+{
+  "name": "ckadinti-runtime",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "tsc -b --pretty false && node packages/runtime-host/dist/session.smoke.js",
+    "typecheck": "tsc -b --pretty false",
+    "dev:student": "vite --config apps/student/vite.config.ts",
+    "dev:host": "tsx packages/runtime-host/src/index.ts"
+  },
+  "workspaces": ["apps/*", "packages/*"],
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}

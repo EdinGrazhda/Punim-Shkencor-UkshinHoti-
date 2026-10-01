@@ -1,0 +1,8 @@
+{
+  "name": "@ckadinti/student",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": { "dev": "vite" },
+  "dependencies": { "@ckadinti/contracts": "workspace:*", "@vitejs/plugin-react": "^4.3.4", "react": "^18.3.1", "react-dom": "^18.3.1", "socket.io-client": "^4.8.1", "vite": "^6.0.5" }
+}
