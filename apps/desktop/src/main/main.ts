@@ -7,6 +7,9 @@ import { gameSnapshotFromApprovedQuestions, generateQuizRequestSchema, lessonIdS
 import { importLessonFile } from "./services/lesson-import.js";
 import { generateQuizFromLesson, regenerateQuestionFromLesson } from "./services/quiz-generation.js";
 
+declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
+declare const MAIN_WINDOW_VITE_NAME: string;
+
 const currentFile = fileURLToPath(import.meta.url);
 const currentDirectory = path.dirname(currentFile);
 if (!app.isPackaged) dotenv.config({ path: path.resolve(currentDirectory, "../../../.env") });
@@ -262,10 +265,10 @@ async function createWindow(): Promise<void> {
     },
   });
 
-  if (process.env.VITE_DEV_SERVER_URL) {
-    await window.loadURL(process.env.VITE_DEV_SERVER_URL);
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    await window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
-    await window.loadFile(path.join(currentDirectory, "../renderer/index.html"));
+    await window.loadFile(path.join(currentDirectory, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
   }
 }
 

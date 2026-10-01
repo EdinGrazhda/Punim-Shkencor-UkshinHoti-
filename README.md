@@ -12,19 +12,20 @@ The student browser experience and authoritative LAN game host are owned by Edin
 
 ## Local development
 
-Requirements: Node.js, pnpm, a running PostgreSQL database, and (for AI quiz generation) an OpenAI API key.
+Requirements: Node.js, Corepack (to select the repository-pinned pnpm version), a running PostgreSQL database, and (for AI quiz generation) an OpenAI API key.
 
-1. Install workspace dependencies with `pnpm install`.
-2. Copy `.env.example` to `.env` and set `DATABASE_URL` to your local PostgreSQL database. Apply the schema with `pnpm --filter @ckadinti/database db:migrate`.
+1. Install workspace dependencies with `corepack pnpm install`.
+2. Copy `.env.example` to `.env` and set `DATABASE_URL` to your local PostgreSQL database. Apply the schema with `corepack pnpm --filter @ckadinti/database db:migrate`.
 3. Add `OPENAI_API_KEY` to `.env` to enable quiz generation. Optionally set `OPENAI_MODEL`; the default is `gpt-6-astra`. Keep `.env` private and never put API keys in renderer code or commits.
-4. Start the teacher app with `pnpm dev:desktop`.
+4. Start the teacher app with `corepack pnpm dev:desktop`.
 
 The desktop app reads `.env` during development. Lesson import and browsing require PostgreSQL; generation additionally requires a valid API key and network access to the OpenAI API. AI-generated content is always presented as an unapproved draft.
 
 ## Checks
 
-- `pnpm typecheck` - typecheck all workspace packages.
-- `pnpm test` - run workspace tests.
+- `corepack pnpm typecheck` - typecheck all workspace packages.
+- `corepack pnpm test` - run workspace tests.
+- `corepack pnpm build` - package the Electron desktop app.
 - For compact command output, use the RTK wrappers documented in [AGENTS.md](AGENTS.md).
 
 ## Branches

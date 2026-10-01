@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main, Arron, Edin]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ckadinti
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ckadinti"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ckadinti
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ckadinti
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Apply PostgreSQL migrations
+        run: pnpm --filter @ckadinti/database db:migrate
+      - name: Run tests
+        run: pnpm test
+      - name: Typecheck workspace
+        run: pnpm typecheck
+      - name: Package desktop app
+        run: pnpm build

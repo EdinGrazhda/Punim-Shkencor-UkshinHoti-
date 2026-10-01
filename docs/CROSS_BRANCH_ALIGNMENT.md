@@ -23,7 +23,9 @@ The teacher app should use `Cyber Raid` for the game mode and `mission` for stud
 
 ## Edin branch observation
 
-The current remote `Edin` branch contains runtime files under `apps/student` and `packages/runtime-host`, but its root `AGENTS.md`, README, Graphify package, and much of its history identify the checkout as the separate Graphify Python project. Before integration, Edin should reconcile that branch with the CkaDinTi repository baseline and preserve only the runtime/student files needed for this project.
+The remote `Edin` ref was inspected read-only at `3db511d` on October 1, 2026. It contains runtime files under `apps/student` and `packages/runtime-host`, but its root `AGENTS.md`, README, Graphify package, and much of its history identify the checkout as the separate Graphify Python project. The runtime exposes `POST /sessions` and Socket.IO join, reconnect, answer, and host-command events. The branch tree does not contain the PostgreSQL runtime persistence or analytics/reporting implementation required by the teacher app.
+
+Before integration, Edin should reconcile that branch with the CkaDinTi repository baseline and preserve only the runtime/student files needed for this project. Arron should not duplicate the socket contracts or make up analytics DTOs while that reconciliation is pending.
 
 ## Integration checklist
 

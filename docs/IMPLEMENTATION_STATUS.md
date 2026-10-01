@@ -11,7 +11,7 @@
 - [ ] Teacher content pipeline.
 - [ ] Authoritative game host.
 - [ ] Student browser flow.
-- [ ] CI and packaging smoke test.
+- [ ] CI and packaging smoke test (GitHub Actions workflow configured; first remote run pending).
 
 ## Arron progress
 
@@ -22,6 +22,8 @@
 - [x] PostgreSQL client and Drizzle migration commands configured.
 - [x] Generate the initial PostgreSQL SQL migration.
 - [ ] Apply migrations against PostgreSQL and run repository integration tests.
+- [x] Verify desktop dev launch and package build on Windows with repository-pinned pnpm 10.15.0.
+- [ ] Verify a clean install, PostgreSQL integration tests, and packaging through GitHub Actions.
 - [x] PostgreSQL lesson, quiz, question, and generation-job repository operations scaffolded.
 - [x] Import TXT, Markdown, PDF, and DOCX lessons with text normalization, evidence blocks, and content deduplication.
 - [x] Validated IPC for importing and listing persisted lessons; renderer no longer receives file paths.
