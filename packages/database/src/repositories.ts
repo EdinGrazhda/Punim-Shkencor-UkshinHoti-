@@ -143,6 +143,20 @@ export function createRepositories(db: Database) {
   };
 
   const questions = {
+    async getForReview(id: string) {
+      const [question] = await db.select().from(schema.questions).where(eq(schema.questions.id, id)).limit(1);
+      if (!question) return null;
+      const [[quiz], [options, evidence]] = await Promise.all([
+        db.select().from(schema.quizzes).where(eq(schema.quizzes.id, question.quizId)).limit(1),
+        Promise.all([
+          db.select().from(schema.questionOptions).where(eq(schema.questionOptions.questionId, id)).orderBy(asc(schema.questionOptions.ordinal)),
+          db.select().from(schema.questionEvidence).where(eq(schema.questionEvidence.questionId, id)),
+        ]),
+      ]);
+      if (!quiz) return null;
+      return { question, quiz, options, evidence };
+    },
+
     async create(
       input: Omit<QuestionInsert, "id" | "createdAt" | "updatedAt" | "reviewStatus">,
       options: Array<{ text: string; isCorrect: boolean }>,
@@ -163,6 +177,103 @@ export function createRepositories(db: Database) {
         })));
         await tx.update(schema.quizzes).set({ status: "needs-review", approvedAt: null, updatedAt: now })
           .where(eq(schema.quizzes.id, input.quizId));
+        return question;
+      });
+    },
+
+    async createManual(input: {
+      quizId: string; kind: string; prompt: string; explanation: string; topic: string; difficulty: string;
+      options: Array<{ text: string; isCorrect: boolean }>;
+    }) {
+      if (input.options.length < 2 || input.options.filter((option) => option.isCorrect).length !== 1) {
+        throw new Error("A question must have at least two options and exactly one correct option.");
+      }
+      return db.transaction(async (tx) => {
+        const [quiz] = await tx.select({ id: schema.quizzes.id }).from(schema.quizzes).where(eq(schema.quizzes.id, input.quizId)).limit(1);
+        if (!quiz) return null;
+        const [last] = await tx.select({ ordinal: schema.questions.ordinal }).from(schema.questions)
+          .where(eq(schema.questions.quizId, input.quizId)).orderBy(desc(schema.questions.ordinal)).limit(1);
+        const now = new Date();
+        const [question] = await tx.insert(schema.questions).values({
+          id: crypto.randomUUID(), quizId: input.quizId, kind: input.kind, prompt: input.prompt,
+          explanation: input.explanation, topic: input.topic, difficulty: input.difficulty,
+          aiGenerated: false, aiConfidence: null, reviewStatus: "needs-review", ordinal: (last?.ordinal ?? -1) + 1,
+          createdAt: now, updatedAt: now,
+        }).returning();
+        if (!question) throw new Error("Question could not be created.");
+        await tx.insert(schema.questionOptions).values(input.options.map((option, ordinal) => ({
+          id: crypto.randomUUID(), questionId: question.id, ordinal, ...option,
+        })));
+        await tx.update(schema.quizzes).set({ status: "needs-review", approvedAt: null, updatedAt: now })
+          .where(eq(schema.quizzes.id, input.quizId));
+        return question;
+      });
+    },
+
+    async duplicate(id: string) {
+      return db.transaction(async (tx) => {
+        const [source] = await tx.select().from(schema.questions).where(eq(schema.questions.id, id)).limit(1);
+        if (!source) return null;
+        const [last] = await tx.select({ ordinal: schema.questions.ordinal }).from(schema.questions)
+          .where(eq(schema.questions.quizId, source.quizId)).orderBy(desc(schema.questions.ordinal)).limit(1);
+        const [newQuestion] = await tx.insert(schema.questions).values({
+          ...source, id: crypto.randomUUID(), ordinal: (last?.ordinal ?? -1) + 1,
+          reviewStatus: "needs-review", createdAt: new Date(), updatedAt: new Date(),
+        }).returning();
+        if (!newQuestion) throw new Error("Question could not be duplicated.");
+        const [options, evidence] = await Promise.all([
+          tx.select().from(schema.questionOptions).where(eq(schema.questionOptions.questionId, id)).orderBy(asc(schema.questionOptions.ordinal)),
+          tx.select().from(schema.questionEvidence).where(eq(schema.questionEvidence.questionId, id)),
+        ]);
+        if (options.length) await tx.insert(schema.questionOptions).values(options.map(({ id: _id, questionId: _questionId, ...option }) => ({
+          ...option, id: crypto.randomUUID(), questionId: newQuestion.id,
+        })));
+        if (evidence.length) await tx.insert(schema.questionEvidence).values(evidence.map(({ id: _id, questionId: _questionId, ...item }) => ({
+          ...item, id: crypto.randomUUID(), questionId: newQuestion.id,
+        })));
+        await tx.update(schema.quizzes).set({ status: "needs-review", approvedAt: null, updatedAt: new Date() })
+          .where(eq(schema.quizzes.id, source.quizId));
+        return newQuestion;
+      });
+    },
+
+    async approvePending(quizId: string) {
+      return db.transaction(async (tx) => {
+        const updated = await tx.update(schema.questions).set({ reviewStatus: "approved", updatedAt: new Date() })
+          .where(and(eq(schema.questions.quizId, quizId), eq(schema.questions.reviewStatus, "needs-review")))
+          .returning({ id: schema.questions.id });
+        if (updated.length) await tx.update(schema.quizzes).set({ status: "needs-review", approvedAt: null, updatedAt: new Date() })
+          .where(eq(schema.quizzes.id, quizId));
+        return updated.length;
+      });
+    },
+
+    async replaceGeneratedContent(id: string, input: {
+      kind: string; prompt: string; explanation: string; topic: string; difficulty: string; confidence: string;
+      options: Array<{ text: string; isCorrect: boolean }>;
+      evidence: Array<{ lessonBlockId: string; quoteStart: number; quoteEnd: number }>;
+    }) {
+      if (input.options.length < 2 || input.options.filter((option) => option.isCorrect).length !== 1 || !input.evidence.length) {
+        throw new Error("Regenerated questions require valid answers and lesson evidence.");
+      }
+      return db.transaction(async (tx) => {
+        const [existing] = await tx.select().from(schema.questions).where(eq(schema.questions.id, id)).limit(1);
+        if (!existing) return null;
+        const now = new Date();
+        const [question] = await tx.update(schema.questions).set({
+          kind: input.kind, prompt: input.prompt, explanation: input.explanation, topic: input.topic,
+          difficulty: input.difficulty, aiGenerated: true, aiConfidence: input.confidence,
+          reviewStatus: "needs-review", updatedAt: now,
+        }).where(eq(schema.questions.id, id)).returning();
+        if (!question) return null;
+        await tx.delete(schema.questionOptions).where(eq(schema.questionOptions.questionId, id));
+        await tx.insert(schema.questionOptions).values(input.options.map((option, ordinal) => ({
+          id: crypto.randomUUID(), questionId: id, ordinal, ...option,
+        })));
+        await tx.delete(schema.questionEvidence).where(eq(schema.questionEvidence.questionId, id));
+        await tx.insert(schema.questionEvidence).values(input.evidence.map((item) => ({ id: crypto.randomUUID(), questionId: id, ...item })));
+        await tx.update(schema.quizzes).set({ status: "needs-review", approvedAt: null, updatedAt: now })
+          .where(eq(schema.quizzes.id, question.quizId));
         return question;
       });
     },
@@ -249,6 +360,11 @@ export function createRepositories(db: Database) {
           throw new Error("The new order must contain every quiz question exactly once.");
         }
         const now = new Date();
+        const offset = current.length;
+        for (const [ordinal, { id }] of current.entries()) {
+          await tx.update(schema.questions).set({ ordinal: ordinal + offset, updatedAt: now })
+            .where(and(eq(schema.questions.id, id), eq(schema.questions.quizId, quizId)));
+        }
         for (const [ordinal, id] of orderedQuestionIds.entries()) {
           await tx.update(schema.questions).set({ ordinal, reviewStatus: "needs-review", updatedAt: now })
             .where(and(eq(schema.questions.id, id), eq(schema.questions.quizId, quizId)));

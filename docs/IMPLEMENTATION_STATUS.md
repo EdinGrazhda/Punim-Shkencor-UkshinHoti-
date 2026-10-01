@@ -26,12 +26,19 @@
 - [x] Import TXT, Markdown, PDF, and DOCX lessons with text normalization, evidence blocks, and content deduplication.
 - [x] Validated IPC for importing and listing persisted lessons; renderer no longer receives file paths.
 - [x] Added runtime-compatible `GameSnapshot` and `ApprovedQuestion` contracts for Edin's host.
+- [x] Approved quiz export validates review state and produces an Edin-compatible `GameSnapshot` for teacher-side host handoff.
 - [x] Add normalization/block unit tests and a `TEST_DATABASE_URL`-gated PostgreSQL repository integration test.
-- [ ] Add parser fixtures for TXT, Markdown, PDF, and DOCX extraction.
+- [x] Add parser fixtures and import-path tests for TXT, Markdown, text PDF, and DOCX extraction.
 - [x] Lessons listing/detail and generated quiz draft listing wired to PostgreSQL repositories.
 - [x] OpenAI Responses API generation service with strict structured output, source-quote evidence mapping, prompt/model tracking, and failed-job reporting.
 - [x] Lesson detail can generate persisted quiz drafts; quizzes remain in `needs-review` until the teacher review workflow is implemented.
-- [ ] Teacher review workflow.
+- [x] Settings screen shows PostgreSQL/OpenAI readiness without exposing credentials.
+- [ ] Reports require Edin's runtime events and analytics persistence integration.
+- [ ] Teacher host/lobby screens require the reconciled Edin runtime and a Socket.IO client in the shared workspace.
+- [x] Teacher review workflow.
+  - [x] Review screen with source quotes and “view in lesson”, editable prompt/explanation/topic/difficulty/options, approve/reject, delete, reorder, and quiz-level approval gate.
+  - [x] Add a manual teacher question, duplicate a question with its options/evidence, and bulk-approve pending questions (rejected questions stay rejected).
+  - [x] Regenerate an individual question from lesson evidence, track the generation job, and return the replacement to pending review.
 
 ## Branch status
 

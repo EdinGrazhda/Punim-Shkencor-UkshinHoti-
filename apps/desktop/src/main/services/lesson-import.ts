@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import mammoth from "mammoth";
-import pdfParse from "pdf-parse";
 import { lessonImportRequestSchema } from "@ckadinti/contracts";
 import type { createRepositories } from "@ckadinti/database";
+
+// Load through CommonJS require so pdf-parse does not mistake Vite/Vitest's
+// module loader for its standalone CLI and try to open its own test PDF.
+const pdfParse = createRequire(import.meta.url)("pdf-parse") as typeof import("pdf-parse");
 
 type Repositories = ReturnType<typeof createRepositories>;
 
@@ -63,7 +67,8 @@ async function extractText(filePath: string, sourceType: ReturnType<typeof sourc
   if (buffer.byteLength > MAX_SOURCE_BYTES) throw new Error("Lesson files must be 12 MB or smaller.");
   if (sourceType === "txt" || sourceType === "markdown") return buffer.toString("utf8");
   if (sourceType === "pdf") {
-    const result = await pdfParse(buffer);
+    // pdf.js misreads Node's Buffer subclass as a generic data object; pass a plain Uint8Array.
+    const result = await pdfParse(new Uint8Array(buffer) as Buffer);
     return result.text;
   }
   const result = await mammoth.extractRawText({ buffer });

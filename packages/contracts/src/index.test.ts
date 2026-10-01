@@ -1,0 +1,28 @@
+import { describe, expect, it } from "vitest";
+import { gameSnapshotFromApprovedQuestions, generatedQuestionSchema, reviewQuestionSaveSchema } from "./index.js";
+
+describe("teacher quiz contracts", () => {
+  it("accepts a question with exactly one correct answer and evidence", () => {
+    expect(generatedQuestionSchema.safeParse({
+      kind: "multiple-choice", prompt: "At what temperature does water freeze?", explanation: "The lesson states zero degrees.",
+      topic: "Water", difficulty: "easy", confidence: "high",
+      options: [{ text: "0°C", isCorrect: true }, { text: "10°C", isCorrect: false }],
+      evidence: [{ quoteStart: 0, quoteEnd: 35 }],
+    }).success).toBe(true);
+  });
+
+  it("rejects review edits without exactly one correct answer", () => {
+    const parsed = reviewQuestionSaveSchema.safeParse({
+      questionId: "ec830a17-1dd0-4ecb-8d40-ddc505646c13", prompt: "Question?", explanation: "Explanation.",
+      topic: "Topic", difficulty: "medium",
+      options: [{ text: "A", isCorrect: true }, { text: "B", isCorrect: true }],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("exports approved questions in Edin's runtime snapshot shape", () => {
+    expect(gameSnapshotFromApprovedQuestions({
+      id: "quiz-1", title: "Water", questions: [{ id: "q-1", prompt: "Freezing point?", options: [{ text: "0°C", isCorrect: true }, { text: "100°C", isCorrect: false }] }],
+    })).toEqual({ id: "quiz-1", title: "Water", questions: [{ id: "q-1", prompt: "Freezing point?", options: ["0°C", "100°C"], correctOption: 0, timeLimitMs: 30_000 }] });
+  });
+});

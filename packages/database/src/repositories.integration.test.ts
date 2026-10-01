@@ -46,4 +46,32 @@ describe.skipIf(!testDatabaseUrl)("PostgreSQL lesson repository", () => {
     expect(duplicate.duplicate).toBe(true);
     expect(duplicate.lesson.id).toBe(lessonId);
   });
+
+  it("keeps generated, manually added, and duplicated questions pending until approved", async () => {
+    const sourceLesson = await repositories.lessons.get(lessonId!);
+    const quiz = await repositories.quizzes.create({ lessonId: lessonId!, title: "Review workflow fixture", language: "en", difficulty: "easy" });
+    if (!quiz) throw new Error("Quiz fixture could not be created.");
+    const options = [{ text: "Correct", isCorrect: true }, { text: "Incorrect", isCorrect: false }];
+    const generated = await repositories.questions.create({
+      quizId: quiz.id, kind: "multiple-choice", prompt: "Generated question?", explanation: "From the source.", topic: "Fixture",
+      difficulty: "easy", aiGenerated: true, aiConfidence: "high", ordinal: 0,
+    }, options, [{ lessonBlockId: sourceLesson!.blocks[0]!.id, quoteStart: 0, quoteEnd: 11 }]);
+    const manual = await repositories.questions.createManual({
+      quizId: quiz.id, kind: "true-false", prompt: "Manual question?", explanation: "Teacher authored.", topic: "Fixture",
+      difficulty: "medium", options: [{ text: "True", isCorrect: true }, { text: "False", isCorrect: false }],
+    });
+    const duplicate = await repositories.questions.duplicate(generated.id);
+
+    expect(manual?.reviewStatus).toBe("needs-review");
+    expect(duplicate?.reviewStatus).toBe("needs-review");
+    expect((await repositories.quizzes.getForReview(quiz.id))?.questions).toHaveLength(3);
+    await expect(repositories.quizzes.approve(quiz.id)).rejects.toThrow(/Every question/);
+
+    await repositories.questions.setReviewStatus(generated.id, "rejected");
+    await repositories.questions.reorder(quiz.id, [duplicate!.id, manual!.id, generated.id]);
+    expect(await repositories.questions.approvePending(quiz.id)).toBe(2);
+    await expect(repositories.quizzes.approve(quiz.id)).rejects.toThrow(/Every question/);
+    await repositories.questions.setReviewStatus(generated.id, "approved");
+    expect((await repositories.quizzes.approve(quiz.id))?.status).toBe("approved");
+  });
 });

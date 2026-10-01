@@ -3,9 +3,9 @@ import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDatabase, createRepositories } from "@ckadinti/database";
-import { generateQuizRequestSchema, lessonIdSchema, lessonImportResultSchema, lessonListItemSchema } from "@ckadinti/contracts";
+import { gameSnapshotFromApprovedQuestions, generateQuizRequestSchema, lessonIdSchema, lessonImportResultSchema, lessonListItemSchema, manualQuestionCreateSchema, questionIdSchema, questionReviewDecisionSchema, quizIdSchema, quizReorderSchema, reviewQuestionSaveSchema } from "@ckadinti/contracts";
 import { importLessonFile } from "./services/lesson-import.js";
-import { generateQuizFromLesson } from "./services/quiz-generation.js";
+import { generateQuizFromLesson, regenerateQuestionFromLesson } from "./services/quiz-generation.js";
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDirectory = path.dirname(currentFile);
@@ -71,6 +71,162 @@ function registerIpc(): void {
     }
   });
 
+  ipcMain.handle("teacher:get-settings-status", async () => {
+    let databaseConnected = false;
+    try {
+      await getRepositories().lessons.list();
+      databaseConnected = true;
+    } catch {
+      // Report configuration state only; never return connection strings or driver errors to the renderer.
+    }
+    return {
+      ok: true,
+      data: {
+        databaseConnected,
+        openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
+        model: process.env.OPENAI_MODEL ?? "gpt-6-astra",
+        sourceFormats: ["TXT", "Markdown", "text-based PDF", "DOCX"],
+      },
+    };
+  });
+
+  ipcMain.handle("teacher:get-quiz-review", async (_event, value: unknown) => {
+    const parsed = quizIdSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_QUIZ_ID", message: "The quiz id is invalid." } };
+    try {
+      const repositories = getRepositories();
+      const quiz = await repositories.quizzes.getForReview(parsed.data);
+      if (!quiz) return { ok: false, error: { code: "QUIZ_NOT_FOUND", message: "The quiz could not be found." } };
+      const lesson = quiz.lessonId ? await repositories.lessons.get(quiz.lessonId) : null;
+      const data = {
+        ...quiz,
+        questions: quiz.questions.map((question) => ({
+          ...question,
+          evidence: question.evidence.map((item) => ({
+            ...item,
+            blockOrdinal: lesson?.blocks.find((block) => block.id === item.lessonBlockId)?.ordinal ?? null,
+            quote: lesson?.normalizedText.slice(item.quoteStart, item.quoteEnd) ?? "",
+          })),
+        })),
+      };
+      return { ok: true, data };
+    } catch (error) {
+      return { ok: false, error: { code: "QUIZ_REVIEW_LOAD_FAILED", message: error instanceof Error ? error.message : "Could not load quiz review." } };
+    }
+  });
+
+  ipcMain.handle("teacher:save-review-question", async (_event, value: unknown) => {
+    const parsed = reviewQuestionSaveSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_QUESTION", message: parsed.error.issues[0]?.message ?? "Question details are invalid." } };
+    try {
+      const repositories = getRepositories();
+      const { questionId, options, ...patch } = parsed.data;
+      const question = await repositories.questions.update(questionId, patch);
+      if (!question) return { ok: false, error: { code: "QUESTION_NOT_FOUND", message: "The question could not be found." } };
+      await repositories.questions.replaceOptions(questionId, options);
+      return { ok: true, data: { questionId, reviewStatus: "needs-review" as const } };
+    } catch (error) {
+      return { ok: false, error: { code: "QUESTION_SAVE_FAILED", message: error instanceof Error ? error.message : "Could not save the question." } };
+    }
+  });
+
+  ipcMain.handle("teacher:set-question-review", async (_event, value: unknown) => {
+    const parsed = questionReviewDecisionSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_REVIEW_DECISION", message: "Choose approve or reject for a valid question." } };
+    try {
+      const question = await getRepositories().questions.setReviewStatus(parsed.data.questionId, parsed.data.reviewStatus);
+      if (!question) return { ok: false, error: { code: "QUESTION_NOT_FOUND", message: "The question could not be found." } };
+      return { ok: true, data: { questionId: question.id, reviewStatus: question.reviewStatus } };
+    } catch (error) {
+      return { ok: false, error: { code: "QUESTION_REVIEW_FAILED", message: error instanceof Error ? error.message : "Could not update question review." } };
+    }
+  });
+
+  ipcMain.handle("teacher:create-manual-question", async (_event, value: unknown) => {
+    const parsed = manualQuestionCreateSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_MANUAL_QUESTION", message: parsed.error.issues[0]?.message ?? "Question details are invalid." } };
+    try {
+      const question = await getRepositories().questions.createManual(parsed.data);
+      return question ? { ok: true, data: { questionId: question.id } } : { ok: false, error: { code: "QUIZ_NOT_FOUND", message: "The target quiz could not be found." } };
+    } catch (error) {
+      return { ok: false, error: { code: "MANUAL_QUESTION_CREATE_FAILED", message: error instanceof Error ? error.message : "Could not add the question." } };
+    }
+  });
+
+  ipcMain.handle("teacher:duplicate-question", async (_event, value: unknown) => {
+    const parsed = questionIdSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_QUESTION_ID", message: "The question id is invalid." } };
+    try {
+      const question = await getRepositories().questions.duplicate(parsed.data);
+      return question ? { ok: true, data: { questionId: question.id } } : { ok: false, error: { code: "QUESTION_NOT_FOUND", message: "The source question could not be found." } };
+    } catch (error) {
+      return { ok: false, error: { code: "QUESTION_DUPLICATE_FAILED", message: error instanceof Error ? error.message : "Could not duplicate the question." } };
+    }
+  });
+
+  ipcMain.handle("teacher:approve-pending-questions", async (_event, value: unknown) => {
+    const parsed = quizIdSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_QUIZ_ID", message: "The quiz id is invalid." } };
+    try {
+      const count = await getRepositories().questions.approvePending(parsed.data);
+      return { ok: true, data: { count } };
+    } catch (error) {
+      return { ok: false, error: { code: "BULK_APPROVAL_FAILED", message: error instanceof Error ? error.message : "Could not approve pending questions." } };
+    }
+  });
+
+  ipcMain.handle("teacher:delete-review-question", async (_event, value: unknown) => {
+    const parsed = questionIdSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_QUESTION_ID", message: "The question id is invalid." } };
+    try {
+      const deleted = await getRepositories().questions.delete(parsed.data);
+      return deleted ? { ok: true, data: { questionId: parsed.data } } : { ok: false, error: { code: "QUESTION_NOT_FOUND", message: "The question could not be found." } };
+    } catch (error) {
+      return { ok: false, error: { code: "QUESTION_DELETE_FAILED", message: error instanceof Error ? error.message : "Could not delete the question." } };
+    }
+  });
+
+  ipcMain.handle("teacher:reorder-review-questions", async (_event, value: unknown) => {
+    const parsed = quizReorderSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_QUESTION_ORDER", message: "The question order is invalid." } };
+    try {
+      await getRepositories().questions.reorder(parsed.data.quizId, parsed.data.orderedQuestionIds);
+      return { ok: true, data: null };
+    } catch (error) {
+      return { ok: false, error: { code: "QUESTION_REORDER_FAILED", message: error instanceof Error ? error.message : "Could not reorder questions." } };
+    }
+  });
+
+  ipcMain.handle("teacher:approve-quiz", async (_event, value: unknown) => {
+    const parsed = quizIdSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_QUIZ_ID", message: "The quiz id is invalid." } };
+    try {
+      const quiz = await getRepositories().quizzes.approve(parsed.data);
+      return quiz ? { ok: true, data: { quizId: quiz.id, status: quiz.status } } : { ok: false, error: { code: "QUIZ_NOT_FOUND", message: "The quiz could not be found." } };
+    } catch (error) {
+      return { ok: false, error: { code: "QUIZ_APPROVAL_FAILED", message: error instanceof Error ? error.message : "Approve every question before approving the quiz." } };
+    }
+  });
+
+  ipcMain.handle("teacher:export-approved-snapshot", async (_event, value: unknown) => {
+    const parsed = quizIdSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_QUIZ_ID", message: "The quiz id is invalid." } };
+    try {
+      const quiz = await getRepositories().quizzes.getForReview(parsed.data);
+      if (!quiz) return { ok: false, error: { code: "QUIZ_NOT_FOUND", message: "The quiz could not be found." } };
+      if (quiz.status !== "approved" || quiz.questions.some((question) => question.reviewStatus !== "approved")) {
+        return { ok: false, error: { code: "QUIZ_NOT_APPROVED", message: "Approve every question and the quiz before exporting a host snapshot." } };
+      }
+      const data = gameSnapshotFromApprovedQuestions({
+        id: quiz.id, title: quiz.title,
+        questions: quiz.questions.map((question) => ({ id: question.id, prompt: question.prompt, options: question.options, timeLimitMs: 30_000 })),
+      });
+      return { ok: true, data };
+    } catch (error) {
+      return { ok: false, error: { code: "SNAPSHOT_EXPORT_FAILED", message: error instanceof Error ? error.message : "Could not export this quiz." } };
+    }
+  });
+
   ipcMain.handle("teacher:generate-quiz", async (_event, value: unknown) => {
     const parsed = generateQuizRequestSchema.safeParse(value);
     if (!parsed.success) return { ok: false, error: { code: "INVALID_GENERATION_REQUEST", message: "Choose a lesson and request between 3 and 20 questions." } };
@@ -78,6 +234,16 @@ function registerIpc(): void {
       return { ok: true, data: await generateQuizFromLesson(parsed.data.lessonId, parsed.data.questionCount, getRepositories()) };
     } catch (error) {
       return { ok: false, error: { code: "QUIZ_GENERATION_FAILED", message: error instanceof Error ? error.message : "Quiz generation failed." } };
+    }
+  });
+
+  ipcMain.handle("teacher:regenerate-question", async (_event, value: unknown) => {
+    const parsed = questionIdSchema.safeParse(value);
+    if (!parsed.success) return { ok: false, error: { code: "INVALID_QUESTION_ID", message: "The question id is invalid." } };
+    try {
+      return { ok: true, data: await regenerateQuestionFromLesson(parsed.data, getRepositories()) };
+    } catch (error) {
+      return { ok: false, error: { code: "QUESTION_REGENERATION_FAILED", message: error instanceof Error ? error.message : "Question regeneration failed." } };
     }
   });
 }

@@ -6,9 +6,9 @@ Read [AGENTS.md](AGENTS.md) for repository rules and [docs/TEAM_TASKS.md](docs/T
 
 ## Current MVP
 
-The teacher desktop app is built with Electron, React, and TypeScript. It can import TXT, Markdown, text-based PDF, and DOCX lessons, normalize them into evidence blocks, and persist them in PostgreSQL. From a lesson, a teacher can request a quiz draft using the OpenAI Responses API. Generated questions are schema-validated and their evidence quotes must match the lesson text; every generated question remains `needs-review` until the teacher reviews it.
+The teacher desktop app is built with Electron, React, and TypeScript. It can import TXT, Markdown, text-based PDF, and DOCX lessons, normalize them into evidence blocks, and persist them in PostgreSQL. From a lesson, a teacher can request a quiz draft using the OpenAI Responses API. Generated questions are schema-validated and their evidence quotes must match the lesson text. The quiz review screen supports editing prompts, explanations, topics, difficulty and answers; opening source quotes in the lesson; approving/rejecting, deleting, and reordering questions; manually adding and duplicating questions; bulk-approving pending questions; per-question AI regeneration; and approving a quiz only after every remaining question is approved.
 
-The student browser experience and authoritative LAN game host are owned by Edin and are under development. Teacher review/edit/approval screens, reports, and game hosting from the desktop are also not complete. See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for the live checklist.
+The student browser experience and authoritative LAN game host are owned by Edin. The teacher app can export fully approved quiz data as Edin’s `GameSnapshot` contract and its Settings screen reports service readiness without exposing secrets. Live host/lobby controls and session reports depend on integrating Edin’s runtime package and persisted analytics. See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for the live checklist.
 
 ## Local development
 

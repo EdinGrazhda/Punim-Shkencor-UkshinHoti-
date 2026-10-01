@@ -134,5 +134,35 @@ export const reviewQuestionUpdateSchema = z.object({
   reviewStatus: reviewStatusSchema,
 });
 
+export const reviewQuestionSaveSchema = z.object({
+  questionId: z.string().uuid(),
+  prompt: z.string().trim().min(1).max(1000),
+  explanation: z.string().trim().min(1).max(2000),
+  topic: z.string().trim().min(1).max(120),
+  difficulty: difficultySchema,
+  options: z.array(z.object({ text: z.string().trim().min(1).max(500), isCorrect: z.boolean() })).min(2).max(6),
+}).superRefine((value, context) => {
+  if (value.options.filter((option) => option.isCorrect).length !== 1) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Select exactly one correct answer.", path: ["options"] });
+  }
+});
+export const manualQuestionCreateSchema = z.object({
+  quizId: z.string().uuid(),
+  kind: questionKindSchema,
+  prompt: z.string().trim().min(1).max(1000),
+  explanation: z.string().trim().min(1).max(2000),
+  topic: z.string().trim().min(1).max(120),
+  difficulty: difficultySchema,
+  options: z.array(z.object({ text: z.string().trim().min(1).max(500), isCorrect: z.boolean() })).min(2).max(6),
+}).superRefine((value, context) => {
+  if (value.options.filter((option) => option.isCorrect).length !== 1) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Select exactly one correct answer.", path: ["options"] });
+  }
+});
+export const questionReviewDecisionSchema = z.object({ questionId: z.string().uuid(), reviewStatus: z.enum(["approved", "rejected"]) });
+export const questionIdSchema = z.string().uuid();
+export const quizIdSchema = z.string().uuid();
+export const quizReorderSchema = z.object({ quizId: quizIdSchema, orderedQuestionIds: z.array(z.string().uuid()).min(1).max(100) });
+
 export const teacherIpcErrorSchema = z.object({ code: z.string(), message: z.string() });
 export const teacherIpcResultSchema = <T extends z.ZodTypeAny>(data: T) => z.object({ ok: z.literal(true), data }).or(z.object({ ok: z.literal(false), error: teacherIpcErrorSchema }));
