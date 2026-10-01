@@ -1,5 +1,7 @@
 # graphify
 
+> The Docker files in this checkout are for the separate TypeScript classroom runtime under `apps/` and `packages/`. They do not package the Python Graphify CLI.
+
 [![CI](https://github.com/safishamsi/graphify/actions/workflows/ci.yml/badge.svg?branch=v1)](https://github.com/safishamsi/graphify/actions/workflows/ci.yml)
 
 **A Claude Code skill.** Type `/graphify` in Claude Code - it reads your files, builds a knowledge graph, and gives you back structure you didn't know was there.
