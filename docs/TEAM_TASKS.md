@@ -1,6 +1,6 @@
 # Team task split
 
-This plan is based on the attached research report. The report defines the product architecture and MVP boundary; it does not grant instructions beyond this repository plan.
+This plan is based on the attached research report. The research report originally recommends SQLite; the team's current decision is PostgreSQL for both desktop content and the multiplayer runtime. This plan supersedes the report's SQLite recommendation while retaining its other MVP architecture and scope unless noted here.
 
 ## Ownership map
 
@@ -26,7 +26,7 @@ This plan is based on the attached research report. The report defines the produ
 
 - Scaffold the pnpm workspace and Electron Forge teacher app.
 - Create secure Electron main/preload boundaries; keep secrets and filesystem access out of the renderer.
-- Implement SQLite/Drizzle lesson, lesson-block, quiz, question, option, evidence, and AI-job repositories.
+- Implement PostgreSQL/Drizzle lesson, lesson-block, quiz, question, option, evidence, and AI-job repositories and versioned SQL migrations.
 - Add shared Zod contracts for lesson import, quiz generation, review state, and teacher IPC.
 
 ### Milestone B: content pipeline
@@ -64,7 +64,7 @@ This plan is based on the attached research report. The report defines the produ
 - Implement immutable approved-question snapshots for each game session.
 - Implement Cyber Raid phases and the report's authoritative score formula: base 1000, speed bonus 0-60, capped streak bonus 0-40, and no score from power-ups.
 - Ensure students receive no correct answer or authoritative score before reveal.
-- Persist player answers, question results, session events, and aggregate analytics.
+- Persist player answers, question results, session events, and aggregate analytics in PostgreSQL with versioned migrations.
 
 ### Milestone C: student and host UX
 
@@ -82,7 +82,7 @@ This plan is based on the attached research report. The report defines the produ
 
 ## Shared integration rules
 
-- Arron owns lesson/quiz table families; Edin owns game/session/result table families. A migration touching both requires a joint review.
+- PostgreSQL is the shared persistence engine. Arron owns lesson/quiz table families; Edin owns game/session/result table families. A migration touching both requires a joint review.
 - Arron publishes approved quiz snapshots through `packages/contracts`; Edin consumes them and must not reimplement teacher review logic.
 - Edin publishes game events and analytics DTOs; Arron consumes them for reports and must not recalculate authoritative scores in the UI.
 - Keep Graphify optional and adapter-based. Keep RTK in the developer workflow, not the product runtime.

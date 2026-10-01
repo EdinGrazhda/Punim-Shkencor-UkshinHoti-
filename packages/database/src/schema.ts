@@ -1,11 +1,11 @@
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { boolean, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 const timestamps = {
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
 };
 
-export const lessons = sqliteTable("lessons", {
+export const lessons = pgTable("lessons", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   subject: text("subject"),
@@ -17,7 +17,7 @@ export const lessons = sqliteTable("lessons", {
   ...timestamps,
 }, (table) => [uniqueIndex("lessons_content_sha256_idx").on(table.contentSha256)]);
 
-export const lessonBlocks = sqliteTable("lesson_blocks", {
+export const lessonBlocks = pgTable("lesson_blocks", {
   id: text("id").primaryKey(),
   lessonId: text("lesson_id").notNull().references(() => lessons.id, { onDelete: "cascade" }),
   ordinal: integer("ordinal").notNull(),
@@ -27,18 +27,18 @@ export const lessonBlocks = sqliteTable("lesson_blocks", {
   ...timestamps,
 }, (table) => [uniqueIndex("lesson_blocks_lesson_ordinal_idx").on(table.lessonId, table.ordinal)]);
 
-export const quizzes = sqliteTable("quizzes", {
+export const quizzes = pgTable("quizzes", {
   id: text("id").primaryKey(),
   lessonId: text("lesson_id").references(() => lessons.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   language: text("language").notNull(),
   difficulty: text("difficulty").notNull(),
   status: text("status").notNull(),
-  approvedAt: integer("approved_at", { mode: "timestamp_ms" }),
+  approvedAt: timestamp("approved_at", { withTimezone: true, mode: "date" }),
   ...timestamps,
 });
 
-export const questions = sqliteTable("questions", {
+export const questions = pgTable("questions", {
   id: text("id").primaryKey(),
   quizId: text("quiz_id").notNull().references(() => quizzes.id, { onDelete: "cascade" }),
   kind: text("kind").notNull(),
@@ -46,22 +46,22 @@ export const questions = sqliteTable("questions", {
   explanation: text("explanation").notNull(),
   topic: text("topic").notNull(),
   difficulty: text("difficulty").notNull(),
-  aiGenerated: integer("ai_generated", { mode: "boolean" }).notNull(),
+  aiGenerated: boolean("ai_generated").notNull(),
   aiConfidence: text("ai_confidence"),
   reviewStatus: text("review_status").notNull(),
   ordinal: integer("ordinal").notNull(),
   ...timestamps,
 }, (table) => [uniqueIndex("questions_quiz_ordinal_idx").on(table.quizId, table.ordinal)]);
 
-export const questionOptions = sqliteTable("question_options", {
+export const questionOptions = pgTable("question_options", {
   id: text("id").primaryKey(),
   questionId: text("question_id").notNull().references(() => questions.id, { onDelete: "cascade" }),
   ordinal: integer("ordinal").notNull(),
   text: text("text").notNull(),
-  isCorrect: integer("is_correct", { mode: "boolean" }).notNull(),
+  isCorrect: boolean("is_correct").notNull(),
 }, (table) => [uniqueIndex("question_options_question_ordinal_idx").on(table.questionId, table.ordinal)]);
 
-export const questionEvidence = sqliteTable("question_evidence", {
+export const questionEvidence = pgTable("question_evidence", {
   id: text("id").primaryKey(),
   questionId: text("question_id").notNull().references(() => questions.id, { onDelete: "cascade" }),
   lessonBlockId: text("lesson_block_id").notNull().references(() => lessonBlocks.id, { onDelete: "cascade" }),
@@ -69,7 +69,7 @@ export const questionEvidence = sqliteTable("question_evidence", {
   quoteEnd: integer("quote_end").notNull(),
 });
 
-export const aiGenerationJobs = sqliteTable("ai_generation_jobs", {
+export const aiGenerationJobs = pgTable("ai_generation_jobs", {
   id: text("id").primaryKey(),
   lessonId: text("lesson_id").notNull().references(() => lessons.id, { onDelete: "cascade" }),
   quizId: text("quiz_id").references(() => quizzes.id, { onDelete: "set null" }),

@@ -8,7 +8,7 @@ Build a desktop-first, local-first classroom quiz MVP:
 
 - Teacher app: Electron + React + TypeScript.
 - Student app: React + Vite in a normal browser; no student installation or account.
-- Local persistence: SQLite + Drizzle ORM.
+- Persistence: PostgreSQL + Drizzle ORM, configured through `DATABASE_URL`.
 - LAN game host: Fastify + Socket.IO, authoritative for game state, answers, timing, and score.
 - Shared validation: Zod contracts used by IPC, HTTP, AI, and realtime messages.
 - AI quiz generation: OpenAI Responses API with strict structured output, followed by mandatory teacher review.
@@ -57,4 +57,4 @@ Shared contract changes must be small, documented, and coordinated before mergin
 3. Keep commits focused and prefix them with `arron:` or `edin:` on feature branches.
 4. Run the smallest relevant RTK-wrapped checks, then full CI checks before merge.
 5. Update `docs/IMPLEMENTATION_STATUS.md` when a milestone materially changes.
-6. Never commit API keys, student personal data, or generated local SQLite files.
+6. Never commit API keys, student personal data, database credentials, or database dumps.

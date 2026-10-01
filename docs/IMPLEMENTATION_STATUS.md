@@ -18,7 +18,10 @@
 - [x] pnpm workspace and Electron Forge teacher shell scaffolded.
 - [x] Secure main/preload boundary with lesson file-picker IPC added.
 - [x] Shared Zod lesson, quiz, generation, and review contracts added.
-- [x] Drizzle SQLite schema added for Arron-owned lesson/quiz/content tables.
+- [x] Drizzle PostgreSQL schema added for Arron-owned lesson/quiz/content tables.
+- [x] PostgreSQL client and Drizzle migration commands configured.
+- [x] Generate the initial PostgreSQL SQL migration.
+- [ ] Apply and validate migrations against a PostgreSQL instance; add persistence integration tests.
 - [ ] Lesson parser implementations.
 - [ ] OpenAI generation service.
 - [ ] Teacher review workflow.

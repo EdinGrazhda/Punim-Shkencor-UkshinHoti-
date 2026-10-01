@@ -4,7 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
-  "dependencies": { "drizzle-orm": "^0.43.1" },
-  "devDependencies": { "typescript": "^5.8.3", "vitest": "^3.1.2" }
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts"
+  },
+  "dependencies": { "drizzle-orm": "^0.43.1", "postgres": "^3.4.7" },
+  "devDependencies": { "drizzle-kit": "^0.31.10", "typescript": "^5.8.3", "vitest": "^3.1.2" }
 }

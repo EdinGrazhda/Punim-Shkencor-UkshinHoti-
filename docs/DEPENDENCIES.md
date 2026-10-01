@@ -19,3 +19,10 @@
 - Used only by the trusted Electron main/Node side for quiz generation.
 - Never expose the API key to the renderer or student browser.
 - Generation must use strict structured output and mandatory teacher review.
+
+## PostgreSQL
+
+- PostgreSQL is the persistence engine for both teacher content and game/session data.
+- Drizzle ORM provides typed schemas and versioned SQL migrations; the Node `postgres` client connects through `DATABASE_URL`.
+- Arron owns lesson/quiz tables and Edin owns game/session/result tables. Coordinate changes that cross those table families.
+- Never commit connection strings, database credentials, or database dumps.
