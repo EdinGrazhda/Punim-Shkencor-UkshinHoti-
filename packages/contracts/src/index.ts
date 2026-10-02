@@ -17,7 +17,7 @@ export const ApprovedQuestion = z.object({
   prompt: z.string().min(1),
   options: z.array(z.string().min(1)).min(2).max(6),
   correctOption: z.number().int().nonnegative(),
-  timeLimitMs: z.number().int().positive().max(10 * 60_000),
+  timeLimitMs: z.number().int().positive().max(10 * 60_000).default(10_000),
   explanation: z.string().optional(),
 }).superRefine((q, ctx) => {
   if (q.correctOption >= q.options.length) ctx.addIssue({ code: "custom", message: "correctOption is out of range" });
@@ -45,6 +45,7 @@ export const HttpAnswerRequest = AnswerRequest.extend({ playerId: Player.shape.i
 export type HttpAnswerRequest = z.infer<typeof HttpAnswerRequest>;
 export const HttpCommandRequest = z.object({ command: z.unknown() });
 export const HostCommand = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("set-timer"), timeLimitMs: z.number().int().min(1000).max(600_000) }),
   z.object({ type: z.literal("start") }),
   z.object({ type: z.literal("pause") }),
   z.object({ type: z.literal("resume") }),

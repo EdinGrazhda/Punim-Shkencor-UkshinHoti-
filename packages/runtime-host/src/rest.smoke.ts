@@ -9,6 +9,23 @@ const unauthenticatedCreate = await app.inject({ method: "POST", url: "/api/v1/s
 assert.equal(unauthenticatedCreate.statusCode, 401);
 const publicRegistration = await app.inject({ method: "POST", url: "/api/v1/teachers/register", payload: { name: "Ada Teacher", email: "ada@school.edu", password: "classroom-pass-123" } });
 assert.equal(publicRegistration.statusCode, 404);
+const studentRegistration = await app.inject({ method: "POST", url: "/api/v1/students/register", payload: { name: "Ada Student", email: "ada@student.edu", password: "student-pass-123" } });
+assert.equal(studentRegistration.statusCode, 201);
+assert.equal(studentRegistration.json().student.name, "Ada Student");
+const initialLeaderboard = await app.inject({ method: "GET", url: "/api/v1/students/leaderboard" });
+assert.equal(initialLeaderboard.statusCode, 200);
+assert.deepEqual(initialLeaderboard.json().leaderboard[0], { id: `account:${studentRegistration.json().student.id}`, displayName: "Ada Student", score: 0, gamesPlayed: 0 });
+const studentToken = studentRegistration.json().token as string;
+const studentProfile = await app.inject({ method: "GET", url: "/api/v1/students/me", headers: { authorization: `Bearer ${studentToken}` } });
+assert.equal(studentProfile.json().student.email, "ada@student.edu");
+const duplicateStudent = await app.inject({ method: "POST", url: "/api/v1/students/register", payload: { name: "Ada Student", email: "ADA@student.edu", password: "student-pass-123" } });
+assert.equal(duplicateStudent.statusCode, 409);
+const studentLogin = await app.inject({ method: "POST", url: "/api/v1/students/login", payload: { email: "ADA@student.edu", password: "student-pass-123" } });
+assert.equal(studentLogin.statusCode, 200);
+const studentGameToken = studentLogin.json().token as string;
+const studentLogout = await app.inject({ method: "POST", url: "/api/v1/students/logout", headers: { authorization: `Bearer ${studentToken}` } });
+assert.equal(studentLogout.statusCode, 200);
+assert.equal((await app.inject({ method: "GET", url: "/api/v1/students/me", headers: { authorization: `Bearer ${studentToken}` } })).statusCode, 401);
 const admin = await teacherStore.create("Admin", "admin@school.edu", await hashPassword("admin-test-password"), "admin");
 const adminToken = (await issueTeacherSession(teacherStore, admin)).token;
 const adminLogin = await app.inject({ method: "POST", url: "/api/v1/teachers/login", payload: { email: "admin@school.edu", password: "admin-test-password" } });
@@ -54,6 +71,11 @@ const adminOverview = await app.inject({ method: "GET", url: "/api/v1/admin/over
 assert.equal(adminOverview.json().totals.teachers, 1);
 assert.equal(adminOverview.json().games[0].code, "REST01");
 
+const accountJoin = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/players", headers: { authorization: `Bearer ${studentGameToken}` }, payload: { displayName: "Ada Student", emblem: "Prism" } });
+assert.equal(accountJoin.statusCode, 201);
+const repeatedAccountJoin = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/players", headers: { authorization: `Bearer ${studentGameToken}` }, payload: { displayName: "Different Name", emblem: "Prism" } });
+assert.equal(repeatedAccountJoin.statusCode, 200);
+assert.equal(repeatedAccountJoin.json().player.id, accountJoin.json().player.id);
 const joined = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/players", payload: { displayName: "Ada", emblem: "Shield" } });
 assert.equal(joined.statusCode, 201);
 assert.equal(joined.json().player.emblem, "Shield");
@@ -68,16 +90,38 @@ assert.equal(started.json().state.question.timeLimitMs, 1000);
 
 const answered = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/answers", headers: { authorization: `Bearer ${playerToken}` }, payload: { playerId, questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000003" } });
 assert.equal(answered.statusCode, 200);
-assert.deepEqual(answered.json(), { accepted: true });
+assert.equal(answered.json().accepted, true);
+assert.equal(answered.json().feedback.correctOption, 1);
+const schoolLeaderboard = await app.inject({ method: "GET", url: "/api/v1/students/leaderboard" });
+assert.equal(schoolLeaderboard.statusCode, 200);
+assert.equal(schoolLeaderboard.json().leaderboard.find((row: { id: string }) => row.id === `account:${studentRegistration.json().student.id}`).gamesPlayed, 1);
 
 const duplicate = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/answers", headers: { authorization: `Bearer ${playerToken}` }, payload: { playerId, questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000003" } });
-assert.deepEqual(duplicate.json(), { accepted: true, duplicate: true });
+assert.equal(duplicate.json().accepted, true);
+assert.equal(duplicate.json().duplicate, true);
 
 const hidden = await app.inject({ method: "GET", url: "/api/v1/sessions/REST01/me", headers: { authorization: `Bearer ${playerToken}`, "x-player-id": playerId } });
-assert.deepEqual(hidden.json(), { available: false });
+assert.equal(hidden.json().available, true);
+assert.equal(hidden.json().correctOption, 1);
+assert.equal(hidden.json().reward.completed, false);
+assert.equal(hidden.json().reward.hackBox, undefined);
+const forbiddenReward = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/rewards", payload: { playerId, questionIndex: 0, boxIndex: 0 } });
+assert.equal(forbiddenReward.statusCode, 401);
+const chosenReward = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/rewards", headers: { authorization: `Bearer ${playerToken}` }, payload: { playerId, questionIndex: 0, boxIndex: 0 } });
+assert.equal(chosenReward.statusCode, 200);
+assert.equal(chosenReward.json().reward.selectedBox, 0);
 const revealed = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/commands", headers: { authorization: `Bearer ${createdBody.hostToken}` }, payload: { command: { type: "reveal" } } });
 assert.equal(revealed.statusCode, 200);
 assert.equal(revealed.json().state.reveal.correctOption, 1);
+const ended = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/commands", headers: { authorization: `Bearer ${createdBody.hostToken}` }, payload: { command: { type: "next" } } });
+assert.equal(ended.statusCode, 200);
+assert.equal(ended.json().state.phase, "ended");
+const blockedDetailedResults = await app.inject({ method: "GET", url: "/api/v1/sessions/REST01/host/results" });
+assert.equal(blockedDetailedResults.statusCode, 401);
+const detailedResults = await app.inject({ method: "GET", url: "/api/v1/sessions/REST01/host/results", headers: { authorization: `Bearer ${createdBody.hostToken}` } });
+assert.equal(detailedResults.statusCode, 200);
+const adaResult = detailedResults.json().leaderboard.find((row: { id: string }) => row.id === playerId);
+assert.deepEqual(adaResult.answers[0], { questionIndex: 0, prompt: "2+2?", answered: true, selectedOption: 1, selectedAnswer: "4", correctOption: 1, correctAnswer: "4", correct: true, score: adaResult.answers[0].score });
 
 const loggedOut = await app.inject({ method: "POST", url: "/api/v1/teachers/logout", headers: { authorization: `Bearer ${teacherToken}` } });
 assert.equal(loggedOut.statusCode, 200);

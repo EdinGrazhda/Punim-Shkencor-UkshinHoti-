@@ -16,6 +16,7 @@ import { buildJoinPayload, createSessionCode } from "./join.js";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { hashPassword, hashToken, issueTeacherSession, makeTeacherStore, verifyPassword, type TeacherStore } from "./teacher-auth.js";
+import { issueStudentSession, makeStudentAccountStore, type StudentAccountStore } from "./student-auth.js";
 
 type CodeParams = { code: string };
 
@@ -30,8 +31,10 @@ const loginBody = z.object({ email, password: z.string().min(1), expectedRole: z
 const createTeacherBody = z.object({ name: z.string().trim().min(2).max(80), email, password: z.string().min(10).max(128).optional() });
 const updateTeacherBody = z.object({ name: z.string().trim().min(2).max(80), email, password: z.string().min(10).max(128).optional() });
 const changePasswordBody = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(10).max(128) }).refine(body => body.currentPassword !== body.newPassword, { message: "new_password_must_differ" });
+const studentAccountBody = z.object({ name: z.string().trim().min(2).max(80), email, password: z.string().min(10).max(128) });
+const studentLoginBody = z.object({ email, password: z.string().min(1) });
 
-export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore()) {
+export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(), studentStore: StudentAccountStore = makeStudentAccountStore()) {
   const app = Fastify({ logger: false });
   const io = new Server(app.server, { cors: { origin: true } });
   const sessions = new Map<string, AuthoritativeSession>();
@@ -41,7 +44,9 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
   const getSession = (code: string) => {
     const session = sessions.get(code.toUpperCase());
     if (!session) throw new Error("session_not_found");
+    const previousPhase = session.state().phase;
     session.tick();
+    if (previousPhase !== session.state().phase) io.to(session.code).emit("session:state", session.state());
     return session;
   };
   const joinPayload = (request: FastifyRequest, code: string) => buildJoinPayload(process.env.STUDENT_ORIGIN ?? `${request.protocol}://${request.hostname.split(":")[0]}:4173`, code);
@@ -53,12 +58,38 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
   const publish = (session: AuthoritativeSession) => io.to(session.code).emit("session:state", session.state());
   const ticker = setInterval(() => { for (const session of sessions.values()) { const previous = session.state().phase; session.tick(); if (previous !== session.state().phase) publish(session); } }, 250);
   ticker.unref();
-  app.addHook("onClose", async () => { clearInterval(ticker); await teacherStore.close(); });
+  app.addHook("onClose", async () => { clearInterval(ticker); await teacherStore.close(); await studentStore.close(); });
 
   app.get("/health", async () => ({ ok: true, service: "ckadinti-runtime-host" }));
   app.get("/api/v1/health", async () => ({ ok: true, service: "ckadinti-runtime-host" }));
   app.get("/network-readiness", async () => ({ ok: true, host: app.server.address() }));
   app.get("/api/v1/network-readiness", async () => ({ ok: true, host: app.server.address() }));
+
+  app.post("/api/v1/students/register", async (request, reply) => {
+    try {
+      const body = studentAccountBody.parse(request.body);
+      const student = await studentStore.create(body.name, body.email, body.password);
+      return reply.code(201).send(await issueStudentSession(studentStore, student));
+    } catch (error) { return errorResponse(reply, error); }
+  });
+  app.post("/api/v1/students/login", async (request, reply) => {
+    try {
+      const body = studentLoginBody.parse(request.body);
+      const student = await studentStore.authenticate(body.email, body.password);
+      if (!student) return reply.code(401).send({ error: "invalid_credentials" });
+      return reply.send(await issueStudentSession(studentStore, student));
+    } catch (error) { return errorResponse(reply, error); }
+  });
+  app.get("/api/v1/students/me", async (request, reply) => {
+    const value = token(request);
+    const student = value ? await studentStore.findByToken(hashToken(value)) : null;
+    return student ? reply.send({ student }) : reply.code(401).send({ error: "unauthorized" });
+  });
+  app.post("/api/v1/students/logout", async (request, reply) => {
+    const value = token(request);
+    if (value) await studentStore.deleteSession(hashToken(value));
+    return reply.send({ ok: true });
+  });
 
   app.post("/api/v1/teachers/login", async (request, reply) => {
     try {
@@ -175,7 +206,23 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
   });
 
   app.post<{ Params: CodeParams }>("/api/v1/sessions/:code/players", async (request, reply) => {
-    try { const session = getSession(request.params.code); const data = JoinRequest.parse(request.body); const player = session.join(data.displayName, undefined, data.emblem); publish(session); return reply.code(201).send({ player, playerToken: session.tokenFor(player.id), state: session.state() }); }
+    try {
+      const session = getSession(request.params.code);
+      const data = JoinRequest.parse(request.body);
+      const accountToken = token(request);
+      const student = accountToken ? await studentStore.findByToken(hashToken(accountToken)) : null;
+      if (accountToken && !student) return reply.code(401).send({ error: "unauthorized" });
+      const existingId = student ? session.playerIdForStudent(student.id) : undefined;
+      if (existingId) {
+        const player = session.reconnect(existingId);
+        publish(session);
+        return reply.send({ player, playerToken: session.tokenFor(player.id), state: session.state() });
+      }
+      const player = session.join(data.displayName, undefined, data.emblem);
+      if (student) session.linkStudentAccount(player.id, student.id);
+      publish(session);
+      return reply.code(201).send({ player, playerToken: session.tokenFor(player.id), state: session.state() });
+    }
     catch (error) { return errorResponse(reply, error); }
   });
 
@@ -190,7 +237,18 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
       const body = HttpAnswerRequest.parse(request.body);
       const { playerId, ...answer } = body;
       if (!session.verifyPlayer(playerId, token(request))) return reply.code(401).send({ error: "unauthorized" });
-      const result = session.answer(playerId, AnswerRequest.parse(answer)); publish(session); return reply.send(result);
+      const result = session.answer(playerId, AnswerRequest.parse(answer)); publish(session); return reply.send({ ...result, ...(result.accepted ? { feedback: { available: true, ...session.playerResult(playerId) } } : {}) });
+    } catch (error) { return errorResponse(reply, error); }
+  });
+
+  app.post<{ Params: CodeParams }>("/api/v1/sessions/:code/rewards", async (request, reply) => {
+    try {
+      const session = getSession(request.params.code);
+      const body = z.object({ playerId: z.string(), questionIndex: z.number().int().nonnegative(), boxIndex: z.number().int().min(0).max(2).optional(), targetId: z.string().optional() }).parse(request.body);
+      if (!session.verifyPlayer(body.playerId, token(request))) return reply.code(401).send({ error: "unauthorized" });
+      const result = session.chooseReward(body.playerId, body.questionIndex, body.boxIndex, body.targetId);
+      publish(session);
+      return reply.send({ available: true, ...result });
     } catch (error) { return errorResponse(reply, error); }
   });
 
@@ -200,12 +258,41 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
   });
 
   app.get<{ Params: CodeParams }>("/api/v1/sessions/:code/me", async (request, reply) => {
-    try { const session = getSession(request.params.code); const playerId = String(request.headers["x-player-id"] ?? ""); if (!session.verifyPlayer(playerId, token(request))) return reply.code(401).send({ error: "unauthorized" }); if (session.state().phase !== "reveal" && session.state().phase !== "ended") return reply.send({ available: false }); return reply.send({ available: true, ...session.playerResult(playerId) }); }
+    try { const session = getSession(request.params.code); const playerId = String(request.headers["x-player-id"] ?? ""); if (!session.verifyPlayer(playerId, token(request))) return reply.code(401).send({ error: "unauthorized" }); return reply.send({ available: true, ...session.playerResult(playerId) }); }
     catch (error) { return errorResponse(reply, error); }
   });
   app.get<{ Params: CodeParams }>("/api/v1/sessions/:code/results", async (request, reply) => {
     try { const session = getSession(request.params.code); if (session.state().phase !== "ended") return reply.code(409).send({ error: "results_not_ready" }); return reply.send({ leaderboard: session.leaderboard(), questions: session.snapshot.questions.length }); }
     catch (error) { return errorResponse(reply, error); }
+  });
+  app.get<{ Params: CodeParams }>("/api/v1/sessions/:code/host/results", async (request, reply) => {
+    try {
+      const session = getSession(request.params.code);
+      if (!session.verifyHost(token(request))) return reply.code(401).send({ error: "unauthorized" });
+      if (session.state().phase !== "ended") return reply.code(409).send({ error: "results_not_ready" });
+      return reply.send({
+        leaderboard: session.leaderboard().map(player => ({ ...player, answers: session.answerBreakdown(player.id) })),
+        questions: session.snapshot.questions.length,
+      });
+    } catch (error) { return errorResponse(reply, error); }
+  });
+  app.get("/api/v1/students/leaderboard", async (_request, reply) => {
+    const rankings = new Map<string, { id: string; displayName: string; score: number; gamesPlayed: number }>();
+    for (const student of await studentStore.listAccounts()) {
+      rankings.set(`account:${student.id}`, { id: `account:${student.id}`, displayName: student.name, score: 0, gamesPlayed: 0 });
+    }
+    for (const session of sessions.values()) {
+      for (const player of session.leaderboard()) {
+        const accountId = session.studentAccountFor(player.id);
+        const id = accountId ? `account:${accountId}` : `guest:${session.code}:${player.id}`;
+        const entry = rankings.get(id) ?? { id, displayName: player.displayName, score: 0, gamesPlayed: 0 };
+        if (!accountId) entry.displayName = player.displayName;
+        entry.score += player.score;
+        entry.gamesPlayed += 1;
+        rankings.set(id, entry);
+      }
+    }
+    return reply.send({ leaderboard: [...rankings.values()].sort((a, b) => b.score - a.score || a.displayName.localeCompare(b.displayName)) });
   });
   app.get<{ Params: CodeParams }>("/api/v1/sessions/:code/host", async (request, reply) => {
     try { const session = getSession(request.params.code); if (!session.verifyHost(token(request))) return reply.code(401).send({ error: "unauthorized" }); return reply.send({ snapshot: session.snapshot, state: session.state(), leaderboard: session.leaderboard() }); }
@@ -225,5 +312,5 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
     socket.on("disconnect", () => { for (const session of sessions.values()) if (session.players.has(socket.id)) session.disconnect(socket.id); });
   });
 
-  return { app, io, sessions, teacherStore };
+  return { app, io, sessions, teacherStore, studentStore };
 }

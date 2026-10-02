@@ -4,15 +4,16 @@ import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-route
 import { useEffect, useState } from "react";
 import { Student } from "./Student";
 import { Projector, Teacher } from "./Teacher";
-import { ChangePassword, Landing, StudentName, TeacherAuth } from "./Entry";
+import { ChangePassword, Landing, StudentAccount, StudentName, TeacherAuth } from "./Entry";
 import { AdminPanel } from "./Admin";
-import { api, type TeacherIdentity } from "./api";
+import { StudentPanel } from "./StudentPanel";
+import { api, clearTeacherIdentity, readTeacherIdentity, type TeacherIdentity } from "./api";
 import "./styles.css";
 
 function AccountGate({ role }: { role: "teacher" | "admin" }) {
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
-  const [auth] = useState<TeacherIdentity | null>(() => { try { return JSON.parse(localStorage.getItem("ckadinti-teacher") ?? "null") as TeacherIdentity | null; } catch { return null; } });
+  const [auth] = useState<TeacherIdentity | null>(() => readTeacherIdentity(role));
   useEffect(() => {
     if (!auth?.token) { navigate("/login", { replace: true }); return; }
     let active = true;
@@ -30,8 +31,8 @@ function AccountGate({ role }: { role: "teacher" | "admin" }) {
     }).catch(() => { if (active) { localStorage.removeItem("ckadinti-teacher"); localStorage.removeItem("ckadinti-host"); navigate(role === "admin" ? "/admin/login" : "/login", { replace: true }); } });
     return () => { active = false; };
   }, [auth?.token, navigate, role]);
-  async function logout() { if (auth?.token) await api.logoutTeacher(auth.token).catch(() => undefined); localStorage.removeItem("ckadinti-teacher"); localStorage.removeItem("ckadinti-host"); navigate("/", { replace: true }); }
+  async function logout() { if (auth?.token) { await api.logoutTeacher(auth.token).catch(() => undefined); clearTeacherIdentity(auth); } localStorage.removeItem("ckadinti-host"); navigate("/", { replace: true }); }
   return ready && auth ? <>{role === "teacher" ? <><Teacher /><button className="teacher-logout" onClick={() => void logout()}>Log out</button></> : <AdminPanel auth={auth} onLogout={() => void logout()} />}</> : <div className="auth-loading">Opening your workspace…</div>;
 }
 
-createRoot(document.getElementById("root")!).render(<React.StrictMode><BrowserRouter><Routes><Route path="/" element={<Landing />} /><Route path="/login" element={<TeacherAuth kind="teacher" />} /><Route path="/admin/login" element={<TeacherAuth kind="admin" />} /><Route path="/change-password" element={<ChangePassword />} /><Route path="/register" element={<Navigate to="/login" replace />} /><Route path="/join" element={<StudentName />} /><Route path="/play" element={<Student />} /><Route path="/teacher" element={<AccountGate role="teacher" />} /><Route path="/admin" element={<AccountGate role="admin" />} /><Route path="/projector" element={<Projector />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></BrowserRouter></React.StrictMode>);
+createRoot(document.getElementById("root")!).render(<React.StrictMode><BrowserRouter><Routes><Route path="/" element={<Landing />} /><Route path="/login" element={<TeacherAuth kind="teacher" />} /><Route path="/admin/login" element={<TeacherAuth kind="admin" />} /><Route path="/change-password" element={<ChangePassword />} /><Route path="/register" element={<Navigate to="/login" replace />} /><Route path="/students" element={<StudentPanel />} /><Route path="/student/account" element={<StudentAccount />} /><Route path="/join" element={<StudentName />} /><Route path="/play" element={<Student />} /><Route path="/teacher" element={<AccountGate role="teacher" />} /><Route path="/admin" element={<AccountGate role="admin" />} /><Route path="/projector" element={<Projector />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></BrowserRouter></React.StrictMode>);
