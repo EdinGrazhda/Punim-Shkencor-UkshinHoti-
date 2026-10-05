@@ -222,7 +222,7 @@ function registerIpc(): void {
       }
       const data = gameSnapshotFromApprovedQuestions({
         id: quiz.id, title: quiz.title,
-        questions: quiz.questions.map((question) => ({ id: question.id, prompt: question.prompt, options: question.options, timeLimitMs: 30_000 })),
+        questions: quiz.questions.map((question) => ({ id: question.id, prompt: question.prompt, explanation: question.explanation, options: question.options, timeLimitMs: 30_000 })),
       });
       return { ok: true, data };
     } catch (error) {

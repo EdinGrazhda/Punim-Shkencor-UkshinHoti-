@@ -28,7 +28,7 @@
 - [x] Import TXT, Markdown, PDF, and DOCX lessons with text normalization, evidence blocks, and content deduplication.
 - [x] Validated IPC for importing and listing persisted lessons; renderer no longer receives file paths.
 - [x] Added runtime-compatible `GameSnapshot` and `ApprovedQuestion` contracts for Edin's host.
-- [x] Approved quiz export validates review state and produces an Edin-compatible `GameSnapshot` for teacher-side host handoff.
+- [x] Approved quiz export validates review state and produces an Edin-compatible `GameSnapshot`, including the teacher-reviewed explanation for the reveal phase.
 - [x] Add normalization/block unit tests and a `TEST_DATABASE_URL`-gated PostgreSQL repository integration test.
 - [x] Add parser fixtures and import-path tests for TXT, Markdown, text PDF, and DOCX extraction.
 - [x] Lessons listing/detail and generated quiz draft listing wired to PostgreSQL repositories.

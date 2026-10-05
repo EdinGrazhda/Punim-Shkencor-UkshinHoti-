@@ -92,6 +92,7 @@ export const ApprovedQuestion = z.object({
   options: z.array(z.string().min(1)).min(2).max(6),
   correctOption: z.number().int().nonnegative(),
   timeLimitMs: z.number().int().positive().max(10 * 60_000),
+  explanation: z.string().trim().min(1).max(2000).optional(),
 }).superRefine((question, context) => {
   if (question.correctOption >= question.options.length) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "correctOption is out of range" });
@@ -114,6 +115,7 @@ export const gameSnapshotFromApprovedQuestions = (input: {
     prompt: string;
     options: Array<{ text: string; isCorrect: boolean }>;
     timeLimitMs?: number;
+    explanation?: string;
   }>;
 }): GameSnapshot => GameSnapshot.parse({
   id: input.id,
@@ -124,6 +126,7 @@ export const gameSnapshotFromApprovedQuestions = (input: {
     options: question.options.map((option) => option.text),
     correctOption: question.options.findIndex((option) => option.isCorrect),
     timeLimitMs: question.timeLimitMs ?? 30_000,
+    ...(question.explanation ? { explanation: question.explanation } : {}),
   })),
 });
 
