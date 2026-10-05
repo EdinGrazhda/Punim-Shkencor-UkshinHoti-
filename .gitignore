@@ -1,29 +1,105 @@
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+
+# Dependency directories and package-manager caches
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/cache/
+.yarn/unplugged/
+.pnp.*
+
+# JavaScript / TypeScript build output and caches
+dist/
+build/
+out/
+release/
+.vite/
+.turbo/
+.cache/
+.parcel-cache/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+
+# Test and coverage output
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+
+# Python virtual environments, builds, and caches
 venv/
 .venv/
 env/
 __pycache__/
-*.pyc
+*.py[cod]
+*.so
+*.egg
 *.egg-info/
 .eggs/
-dist/
-build/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-*.so
-*.egg
-.graphify/
-graphify-out/
-.graphify_*.json
-node_modules/
-*.tsbuildinfo
-.vite/
-out/
-.env
-.env.*
-!.env.example
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+pip-wheel-metadata/
+site/
+
+# Graphify local generated state (fixtures under tests remain trackable)
+/.graphify/
+/graphify-out/
+/.graphify_*.json
+
+# Local databases and runtime state
 *.db
+*.db-journal
 *.db-shm
 *.db-wal
-coverage/
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.pid
+*.pid.lock
+
+# Logs and diagnostic output
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+debug.log*
+
+# Editor and IDE state
+.idea/
+.vscode/
+.history/
+*.swp
+*.swo
+*~
+
+# Operating-system metadata
 .DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# Temporary and merge-recovery files
+tmp/
+temp/
+.tmp/
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
