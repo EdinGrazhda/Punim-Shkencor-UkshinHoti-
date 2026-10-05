@@ -1,23 +1,15 @@
 {
-  "name": "ckadinti-runtime",
+  "name": "ckadinti",
   "private": true,
-  "packageManager": "pnpm@9.15.0",
+  "version": "0.1.0",
+  "description": "Desktop-first local AI classroom quiz platform",
+  "packageManager": "pnpm@10.15.0",
   "scripts": {
-    "build": "tsc -b",
-    "test": "tsc -b --pretty false && node packages/runtime-host/dist/session.smoke.js && node packages/runtime-host/dist/rest.smoke.js",
-    "typecheck": "tsc -b --pretty false",
-    "dev:student": "vite --config apps/student/vite.config.ts",
-    "dev:host": "tsx packages/runtime-host/src/index.ts"
-  },
-  "workspaces": ["apps/*", "packages/*"],
-  "devDependencies": {
-    "@types/node": "^22.10.0",
-    "@types/react": "^18.3.18",
-    "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^4.3.4",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.5",
-    "vitest": "^2.1.8"
+    "dev:desktop": "pnpm --filter @ckadinti/desktop dev",
+    "dev:student": "pnpm --filter @ckadinti/student dev",
+    "dev:host": "pnpm --filter @ckadinti/runtime-host dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @ckadinti/contracts build && pnpm -r test"
   }
 }

@@ -8,7 +8,13 @@ The student, teacher, admin, and projector interfaces live in `apps/student`; th
 
 There is no public teacher registration. To create the first administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.com "School Admin"` and save the randomly generated password shown once in the terminal. Then sign in at [Admin sign in](http://localhost:4173/admin/login). The admin panel can create teacher accounts and see the teacher directory and current games. Each new teacher receives a generated temporary password, shown once to the admin; teachers must replace it on their first sign-in at [Teacher sign in](http://localhost:4173/login). Do not reuse the example admin email for a real deployment.
 
-Run `npm run typecheck` and `npm test` for contract/runtime checks. Admin/teacher accounts and login sessions persist in the Docker PostgreSQL volume (`teacher_data`); live games and scores are still in memory and disappear when the runtime container restarts. The default PostgreSQL password in `docker-compose.yml` is for local development only: set `POSTGRES_PASSWORD` before sharing or deploying this stack. Teacher review, AI quiz generation, and lesson ingestion are not yet connected. The Python Graphify project below is separate from this classroom app.
+Run `pnpm typecheck` and `pnpm test` for workspace checks. Admin/teacher accounts and login sessions persist in the Docker PostgreSQL volume (`teacher_data`); live games and scores are still in memory and disappear when the runtime container restarts. The default PostgreSQL password in `docker-compose.yml` is for local development only: set `POSTGRES_PASSWORD` before sharing or deploying this stack. Arron’s teacher workflow is now present in the same workspace, but its approved-quiz handoff is not yet connected to Edin’s live runtime. The Python Graphify project below is separate from this classroom app.
+
+### Teacher desktop workflow
+
+The Electron teacher app in `apps/desktop` imports TXT, Markdown, text-based PDF, and DOCX lessons and persists them through PostgreSQL and Drizzle. It supports evidence-backed AI quiz generation, mandatory teacher review, editing and reordering questions, and export to the shared runtime `GameSnapshot` contract.
+
+For local development, install dependencies with `corepack pnpm install`, copy `.env.example` to `.env`, configure `DATABASE_URL`, and apply migrations with `corepack pnpm --filter @ckadinti/database db:migrate`. Add `OPENAI_API_KEY` only when AI generation is needed, then start the teacher app with `corepack pnpm dev:desktop`. Never commit `.env` or API keys.
 
 ### Agent automation
 

@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790868336331,
+      "tag": "0000_mean_cable",
+      "breakpoints": true
+    }
+  ]
+}

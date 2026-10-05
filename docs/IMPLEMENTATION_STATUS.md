@@ -28,3 +28,15 @@
 - [ ] Full teacher analytics and persisted game settings.
 
 Scope note: teacher review, AI generation, lesson parsing, and content repositories are intentionally out of scope for Edin.
+
+## Arron teacher/content status
+
+- [x] Electron Forge teacher shell with a secure main/preload boundary.
+- [x] PostgreSQL and Drizzle schema, migrations, and lesson/quiz repositories.
+- [x] TXT, Markdown, text-based PDF, and DOCX lesson import with normalized evidence blocks.
+- [x] OpenAI Responses API quiz generation with schema validation and source-quote evidence.
+- [x] Teacher review workflow with editing, approval/rejection, deletion, reordering, duplication, manual questions, bulk approval, and per-question regeneration.
+- [x] Approved quiz export to the shared runtime `GameSnapshot` contract.
+- [ ] Connect approved teacher quizzes to Edin’s live host/runtime flow.
+- [ ] Persist Edin runtime events and analytics for teacher reports.
+- [ ] Verify PostgreSQL integration tests and packaging in the merged CI workflow.

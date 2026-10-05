@@ -18,3 +18,12 @@ graphify-out/
 node_modules/
 *.tsbuildinfo
 .vite/
+out/
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+coverage/
+.DS_Store
