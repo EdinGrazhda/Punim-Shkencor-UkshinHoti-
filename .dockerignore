@@ -1,0 +1,13 @@
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+*.tsbuildinfo
+.vite
+graphify-out
+__pycache__
+.pytest_cache
+tests
+worked

@@ -1,0 +1,21 @@
+.student-workspace{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:100vh;background:#f4f6fc;color:#00004e}
+.student-sidebar{position:sticky;top:0;display:flex;flex-direction:column;gap:8px;height:100vh;padding:26px 16px 18px;background:#00004e;color:white}
+.student-sidebar-brand{margin:0 10px 37px}
+.student-sidebar-label{padding:0 13px 7px;color:#aab6e9;font-size:10px;font-weight:900;letter-spacing:.13em}
+.student-sidebar nav{display:grid;gap:4px}
+.student-sidebar-item{display:flex;align-items:center;gap:12px;width:100%;min-height:45px;padding:11px 13px;border:0;border-radius:11px;background:transparent;color:#d2dcff;text-align:left;font-size:13px;font-weight:800}
+.student-sidebar-item:hover,.student-sidebar-item.active{background:#29368a;color:white}
+.student-sidebar-bottom{display:flex;align-items:center;gap:10px;margin-top:auto;padding:15px 7px 10px;border-top:1px solid #ffffff2a;min-width:0}
+.student-sidebar-avatar{display:grid;place-items:center;flex:none;width:35px;height:35px;border-radius:50%;background:#8b8fe0;font-weight:900}
+.student-sidebar-bottom div{min-width:0}.student-sidebar-bottom strong,.student-sidebar-bottom small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.student-sidebar-bottom strong{font-size:12px}.student-sidebar-bottom small{color:#c1cafa;font-size:10px}
+.student-signout{margin-top:1px}
+.student-workspace-content{min-width:0}
+.student-workspace .student-dashboard-header{height:68px;padding:0 38px;font-size:12px;font-weight:900}
+.student-workspace .student-dashboard-header strong{font-size:12px}
+.student-workspace .student-dashboard-main{width:min(100% - 76px,1100px);padding-top:42px}
+.student-workspace .student-dashboard-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.student-dashboard-preview{display:flex;flex-direction:column;align-items:flex-start;min-height:290px;padding:25px}
+.student-dashboard-preview h2{margin:8px 0 5px;font-size:24px;font-weight:900}.student-dashboard-preview p{max-width:320px;color:#8490a7;font-size:12px;line-height:1.5}.student-dashboard-preview strong{margin-top:auto;font-size:18px}.student-dashboard-preview .ui-button{margin-top:12px}
+.student-workspace .student-global-board{max-width:900px}
+@media(max-width:850px){.student-workspace{grid-template-columns:1fr}.student-sidebar{position:relative;height:auto;min-height:0;display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:10px;padding:14px 20px}.student-sidebar-brand{margin:0}.student-sidebar-label,.student-sidebar-bottom{display:none}.student-sidebar nav{display:flex;gap:5px}.student-sidebar-item{width:auto;min-height:40px;padding:9px 11px}.student-signout{grid-column:3;grid-row:1;margin:0}.student-workspace .student-dashboard-grid{grid-template-columns:1fr}.student-dashboard-preview{min-height:220px}.student-workspace .student-dashboard-main{width:calc(100% - 48px)}}
+@media(max-width:560px){.student-sidebar{grid-template-columns:1fr auto;padding:13px 15px}.student-sidebar nav{grid-column:1/-1;grid-row:2;overflow-x:auto}.student-signout{grid-column:2}.student-sidebar-brand .brand{font-size:19px}.student-workspace .student-dashboard-header{height:55px;padding:0 17px}.student-workspace .student-dashboard-main{width:calc(100% - 30px);padding-top:29px}.student-dashboard-preview{padding:19px}.student-dashboard-preview h2{font-size:21px}}

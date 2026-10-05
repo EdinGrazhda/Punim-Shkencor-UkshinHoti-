@@ -9,8 +9,10 @@
 - [x] Monorepo scaffold.
 - [x] Shared contracts.
 - [ ] Teacher content pipeline.
-- [ ] Authoritative game host.
-- [ ] Student browser flow.
+- [x] Edin classroom UI and Fastify/Socket.IO runtime selectively integrated on Arron for local preview.
+- [ ] Persist active sessions, answers, and results so runtime restarts do not lose games.
+- [ ] Replace runtime account-table startup DDL with reviewed/versioned PostgreSQL migrations; decide whether account flows belong in MVP.
+- [ ] Complete stable runtime analytics and teacher reports.
 - [ ] CI and packaging smoke test (GitHub Actions workflow configured; first remote run pending).
 
 ## Arron progress
@@ -41,6 +43,16 @@
   - [x] Review screen with source quotes and “view in lesson”, editable prompt/explanation/topic/difficulty/options, approve/reject, delete, reorder, and quiz-level approval gate.
   - [x] Add a manual teacher question, duplicate a question with its options/evidence, and bulk-approve pending questions (rejected questions stay rejected).
   - [x] Regenerate an individual question from lesson evidence, track the generation job, and return the replacement to pending review.
+
+## Edin integration preview on Arron
+
+- [x] Import `apps/student` and `packages/runtime-host` while retaining Arron's lesson, AI, review, and desktop contracts.
+- [x] Add Edin runtime schemas and scoring exports additively to `packages/contracts`.
+- [x] Add workspace commands for browser/runtime development and validation, plus local Docker Compose setup.
+- [ ] Verify browser/runtime end-to-end against PostgreSQL locally and in CI. The current environment may not have Docker/PostgreSQL available.
+- [ ] Persist live game state, answers, and results; currently these are memory-backed.
+- [ ] Review account registration/login scope against the MVP's no-accounts product boundary.
+- [ ] Design versioned migration ownership for runtime account/session data with Edin before main integration.
 
 ## Branch status
 

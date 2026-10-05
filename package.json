@@ -6,6 +6,8 @@
   "packageManager": "pnpm@10.15.0",
   "scripts": {
     "dev:desktop": "pnpm --filter @ckadinti/desktop dev",
+    "dev:student": "pnpm --filter @ckadinti/student dev",
+    "dev:host": "pnpm --filter @ckadinti/runtime-host dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test"
