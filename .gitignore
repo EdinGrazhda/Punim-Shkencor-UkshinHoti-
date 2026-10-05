@@ -1,13 +1,41 @@
+# JavaScript, TypeScript, Vite, and Electron build output
 node_modules/
 dist/
+build/
 out/
 .vite/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Python and Graphify runtime/cache output
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.so
+*.egg
+.graphify/
+.graphify_*.json
+/graphify-out/
+
+# Local environment and secrets
 .env
 .env.*
 !.env.example
+
+# Local database files
 *.db
 *.db-shm
 *.db-wal
-coverage/
-graphify-out/
+
+# Operating-system files
 .DS_Store
+Thumbs.db
