@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Check, CheckCircle2, ClipboardCopy, Flame, LockK
 import type { PublicSessionState } from "@ckadinti/contracts";
 import { api, type PlayerIdentity, type PlayerResult, type Leaderboard, watchSession } from "./api";
 import { Badge, Button, Card, Input, Progress } from "./ui";
-import { formatTime } from "./utils";
+import { createUuid, formatTime } from "./utils";
 import "./Brand.css";
 
 const emblems = [
@@ -88,7 +88,7 @@ export function Student() {
     const next: PlayerIdentity = { code: sessionCode, id: joined.player.id, token: joined.playerToken, name: name.trim(), emblem };
     localStorage.setItem("ckadinti-player", JSON.stringify(next)); setIdentity(next); applySessionState(joined.state); setStep("lobby");
   }
-  async function answer(index: number) { if (!identity || !state?.question || selected !== null || busy) return; setBusy(true); setError(""); try { const response = await api.answer(identity, state.question.index, index, crypto.randomUUID()); if (!response.accepted) throw new Error(response.reason ?? "Answer not accepted."); setSelected(index); if (response.feedback) setResult(response.feedback); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  async function answer(index: number) { if (!identity || !state?.question || selected !== null || busy) return; setBusy(true); setError(""); try { const response = await api.answer(identity, state.question.index, index, createUuid()); if (!response.accepted) throw new Error(response.reason ?? "Answer not accepted."); setSelected(index); if (response.feedback) setResult(response.feedback); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function chooseReward(boxIndex?: number, targetId?: string) {
     if (!identity || !state?.question || busy) return;
     setBusy(true); setError("");
