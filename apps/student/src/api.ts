@@ -36,6 +36,10 @@ export type PlayerResult = { available: boolean; questionIndex?: number; xp?: nu
 export type Leaderboard = { leaderboard: { id: string; displayName: string; score: number }[]; questions: number };
 export type HostResults = { leaderboard: { id: string; displayName: string; score: number; answers: { questionIndex: number; prompt: string; answered: boolean; selectedOption?: number; selectedAnswer?: string; correctOption: number; correctAnswer: string; correct: boolean; score: number }[] }[]; questions: number };
 export type StudentLeaderboard = { leaderboard: { id: string; displayName: string; score: number; gamesPlayed: number }[] };
+export type TeacherLesson = { id: string; title: string; subject: string | null; language: string; sourceType: "txt" | "markdown" | "pdf" | "docx"; originalFilename: string | null; createdAt: string; updatedAt: string };
+export type TeacherQuizSummary = { id: string; lessonId: string | null; title: string; language: string; difficulty: "easy" | "medium" | "hard"; status: "draft" | "needs-review" | "approved"; approvedAt: string | null; createdAt: string; updatedAt: string };
+export type TeacherReviewQuestion = { id: string; quizId: string; kind: "multiple-choice" | "true-false"; prompt: string; explanation: string; topic: string; difficulty: "easy" | "medium" | "hard"; aiGenerated: boolean; aiConfidence: "low" | "medium" | "high" | null; reviewStatus: "draft" | "needs-review" | "approved" | "rejected"; ordinal: number; options: { id: string; questionId: string; ordinal: number; text: string; isCorrect: boolean }[]; evidence: { id: string; questionId: string; lessonBlockId: string; quoteStart: number; quoteEnd: number; blockOrdinal: number | null; quote: string }[] };
+export type TeacherReviewQuiz = TeacherQuizSummary & { questions: TeacherReviewQuestion[] };
 
 const base = "/api/v1";
 async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
@@ -74,6 +78,42 @@ export const api = {
   results: (code: string) => request<Leaderboard>(`/sessions/${code}/results`),
   hostResults: (host: HostIdentity) => request<HostResults>(`/sessions/${host.code}/host/results`, {}, host.token),
   host: (host: HostIdentity) => request<{ snapshot: GameSnapshot; state: PublicSessionState; leaderboard: Leaderboard["leaderboard"] }>(`/sessions/${host.code}/host`, {}, host.token),
+};
+
+async function teacherContentRequest<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`/api/teacher-content/v1${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, ...(typeof init.body === "string" ? { "Content-Type": "application/json" } : {}), ...init.headers },
+  });
+  const text = await response.text();
+  let data: Record<string, unknown> = {};
+  if (text) {
+    try { data = JSON.parse(text) as Record<string, unknown>; }
+    catch { throw new Error(response.ok ? "Teacher content service returned an invalid response." : `Teacher content service failed (${response.status}).`); }
+  }
+  if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : `Teacher content request failed (${response.status}).`);
+  return data as T;
+}
+
+export const teacherContentApi = {
+  listLessons: (token: string) => teacherContentRequest<TeacherLesson[]>("/lessons", token),
+  importLesson: async (token: string, file: File) => teacherContentRequest<{ lesson: TeacherLesson; duplicate: boolean }>("/lessons", token, {
+    method: "POST", body: await file.arrayBuffer(), headers: { "Content-Type": "application/octet-stream", "X-Lesson-Filename": encodeURIComponent(file.name) },
+  }),
+  generateQuiz: (token: string, lessonId: string, questionCount: number) => teacherContentRequest<{ quizId: string; title: string; questionCount: number; status: "needs-review" }>(`/lessons/${lessonId}/generate`, token, {
+    method: "POST", body: JSON.stringify({ questionCount }),
+  }),
+  listQuizzes: (token: string) => teacherContentRequest<TeacherQuizSummary[]>("/quizzes", token),
+  getQuiz: (token: string, id: string) => teacherContentRequest<TeacherReviewQuiz>(`/quizzes/${id}`, token),
+  saveQuestion: (token: string, question: Pick<TeacherReviewQuestion, "id" | "prompt" | "explanation" | "topic" | "difficulty" | "options">) => teacherContentRequest<{ questionId: string; reviewStatus: "needs-review" }>(`/questions/${question.id}`, token, {
+    method: "PATCH", body: JSON.stringify({ questionId: question.id, prompt: question.prompt, explanation: question.explanation, topic: question.topic, difficulty: question.difficulty, options: question.options.map(({ text, isCorrect }) => ({ text, isCorrect })) }),
+  }),
+  decideQuestion: (token: string, questionId: string, reviewStatus: "approved" | "rejected") => teacherContentRequest<{ questionId: string; reviewStatus: "approved" | "rejected" }>(`/questions/${questionId}/decision`, token, {
+    method: "POST", body: JSON.stringify({ questionId, reviewStatus }),
+  }),
+  regenerateQuestion: (token: string, questionId: string) => teacherContentRequest<{ questionId: string; prompt: string; reviewStatus: "needs-review" }>(`/questions/${questionId}/regenerate`, token, { method: "POST" }),
+  approveQuiz: (token: string, quizId: string) => teacherContentRequest<{ quizId: string; status: "approved" }>(`/quizzes/${quizId}/approve`, token, { method: "POST" }),
+  approvedSnapshot: (token: string, quizId: string) => teacherContentRequest<GameSnapshot>(`/quizzes/${quizId}/snapshot`, token, { method: "POST" }),
 };
 
 export function watchSession(code: string, onState: (state: PublicSessionState) => void): Socket {

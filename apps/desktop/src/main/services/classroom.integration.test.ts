@@ -11,7 +11,7 @@ import { generateQuizFromLesson } from "./quiz-generation.js";
 
 const password = "fixture-password-only";
 const email = "teacher@fixture.test";
-const snapshot = { id: "fixture", title: "Water", questions: [{ id: "q1", prompt: "Water freezes at?", options: ["0°C", "100°C"], correctOption: 0, timeLimitMs: 30_000, explanation: "Water freezes at 0°C." }] };
+const snapshot = { id: "fixture", title: "HTML Fundamentals", questions: [{ id: "q1", prompt: "What does HTML do?", options: ["Structures page content", "Stores images"], correctOption: 0, timeLimitMs: 30_000, explanation: "HTML marks page content." }] };
 let host: ReturnType<typeof createRuntimeHost>;
 
 beforeAll(async () => {
@@ -22,12 +22,16 @@ beforeAll(async () => {
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.href === "https://api.openai.com/v1/responses") {
-      const question = {
-        kind: "multiple-choice", prompt: "Water freezes at?", explanation: "Water freezes at 0 degrees Celsius.",
-        topic: "Water", difficulty: "easy", confidence: "high", options: [{ text: "0°C", isCorrect: true }, { text: "100°C", isCorrect: false }],
-        evidence: [{ blockOrdinal: 0, quote: "Water freezes at 0 degrees Celsius." }],
-      };
-      return Response.json({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ title: "Water", language: "en", difficulty: "easy", questions: [question, question, question] }) }] }] });
+      const questions = [
+        { prompt: "What does the DOCTYPE html declaration tell the browser?", correct: "Use the modern HTML standard.", incorrect: "Load the image file.", quote: "The `<!DOCTYPE html>` declaration tells the browser to use the modern HTML standard when it reads a document.", blockOrdinal: 2 },
+        { prompt: "Which attribute identifies the image file for an img element?", correct: "src", incorrect: "href", quote: "An `<img>` element displays an image, and its `src` attribute identifies the image file.", blockOrdinal: 5 },
+        { prompt: "What does the alt attribute provide?", correct: "A text alternative for an image.", incorrect: "The destination of a link.", quote: "The `alt` attribute provides a text alternative that can describe an image to people who cannot see it.", blockOrdinal: 6 },
+      ].map(item => ({
+        kind: "multiple-choice", prompt: item.prompt, explanation: item.quote, topic: "HTML", difficulty: "easy", confidence: "high",
+        options: [{ text: item.correct, isCorrect: true }, { text: item.incorrect, isCorrect: false }],
+        evidence: [{ blockOrdinal: item.blockOrdinal, quote: item.quote }],
+      }));
+      return Response.json({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify({ title: "HTML Fundamentals", language: "en", difficulty: "easy", questions }) }] }] });
     }
     if (url.origin !== "http://127.0.0.1:4310") throw new Error("Unexpected integration-test destination");
     const response = await host.app.inject({
@@ -63,7 +67,7 @@ describe("desktop controls against the actual runtime API", () => {
     expect((await commandHostedSession(session.code, { type: "reveal" })).reveal?.correctOption).toBe(0);
     expect((await commandHostedSession(session.code, { type: "next" })).phase).toBe("ended");
     const results = await getHostedSessionResults(session.code);
-    expect(results.leaderboard[0]?.answers[0]).toMatchObject({ answered: true, correct: true, correctAnswer: "0°C" });
+    expect(results.leaderboard[0]?.answers[0]).toMatchObject({ answered: true, correct: true, correctAnswer: "Structures page content" });
     expect(results.leaderboard[0]?.score).toBe(host.sessions.get(session.code)!.leaderboard()[0]!.score);
   });
 
@@ -81,7 +85,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)("imports, generates, reviews and hosts
   const repositories = createRepositories(connection.db);
   let insertedLessonId: string | undefined;
   try {
-    const imported = await importLessonFile(fileURLToPath(new URL("./fixtures/lesson.txt", import.meta.url)), repositories);
+    const imported = await importLessonFile(fileURLToPath(new URL("./fixtures/html-basics.md", import.meta.url)), repositories);
     if (!imported.duplicate) insertedLessonId = imported.lesson.id;
     const generated = await generateQuizFromLesson(imported.lesson.id, 3, repositories);
     await expect(loadApprovedSnapshot(generated.quizId, repositories)).rejects.toThrow(/Approve every question/);
@@ -95,7 +99,7 @@ it.skipIf(!process.env.TEST_DATABASE_URL)("imports, generates, reviews and hosts
     const first = (await repositories.quizzes.getForReview(generated.quizId))!.questions[0]!;
     await repositories.questions.update(first.id, { prompt: "An edited question?" });
     await expect(loadApprovedSnapshot(generated.quizId, repositories)).rejects.toThrow(/Approve every question/);
-    expect(host.sessions.get(session.code)!.snapshot.questions[0]!.prompt).toBe("Water freezes at?");
+    expect(host.sessions.get(session.code)!.snapshot.questions[0]!.prompt).toBe("What does the DOCTYPE html declaration tell the browser?");
     await commandHostedSession(session.code, { type: "end" });
     expect((await getHostedSessionResults(session.code)).questions).toBe(3);
   } finally {

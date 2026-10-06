@@ -9,6 +9,7 @@ import { importLessonFile } from "./services/lesson-import.js";
 import { loadApprovedSnapshot } from "./services/approved-quiz.js";
 import { generateQuizFromLesson, regenerateQuestionFromLesson } from "./services/quiz-generation.js";
 import { commandHostedSession, createHostedQuizSession, getHostedSessionResults, getHostedSessionState, listHostedSessions } from "./services/runtime-host.js";
+import { createTeacherContentApi } from "./services/teacher-content-api.js";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -28,6 +29,20 @@ function getRepositories(): ReturnType<typeof createRepositories> {
   repositories = createRepositories(databaseConnection.db);
   return repositories;
 }
+
+async function authorizeBrowserTeacher(token: string): Promise<boolean> {
+  const response = await fetch("http://127.0.0.1:4310/api/v1/teachers/me", {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: "error",
+    signal: AbortSignal.timeout(3_000),
+  });
+  if (response.status === 401 || response.status === 403) return false;
+  if (!response.ok) throw new Error("teacher_auth_unavailable");
+  const result = z.object({ teacher: z.object({ role: z.string(), mustChangePassword: z.boolean() }) }).safeParse(await response.json());
+  return result.success && result.data.teacher.role === "teacher" && !result.data.teacher.mustChangePassword;
+}
+
+const teacherContentApi = createTeacherContentApi({ getRepositories, authorizeTeacher: authorizeBrowserTeacher });
 
 function registerIpc(): void {
   const hostResult = async (operation: () => unknown | Promise<unknown>) => {
@@ -293,6 +308,8 @@ async function createWindow(): Promise<void> {
 
 app.whenReady().then(async () => {
   registerIpc();
+  try { await teacherContentApi.listen(); }
+  catch (error) { console.error("The local teacher-content API could not start.", error); }
   await createWindow();
   app.on("activate", async () => {
     if (BrowserWindow.getAllWindows().length === 0) await createWindow();
@@ -304,5 +321,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  void teacherContentApi.close();
   void databaseConnection?.close();
 });

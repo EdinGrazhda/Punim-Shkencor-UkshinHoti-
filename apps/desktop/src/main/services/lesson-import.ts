@@ -62,8 +62,7 @@ export function splitLessonIntoBlocks(normalizedText: string): Array<{ heading: 
   return blocks;
 }
 
-async function extractText(filePath: string, sourceType: ReturnType<typeof sourceTypeFromPath>): Promise<string> {
-  const buffer = await readFile(filePath);
+async function extractText(buffer: Buffer, sourceType: ReturnType<typeof sourceTypeFromPath>): Promise<string> {
   if (buffer.byteLength > MAX_SOURCE_BYTES) throw new Error("Lesson files must be 12 MB or smaller.");
   if (sourceType === "txt" || sourceType === "markdown") return buffer.toString("utf8");
   if (sourceType === "pdf") {
@@ -75,21 +74,23 @@ async function extractText(filePath: string, sourceType: ReturnType<typeof sourc
   return result.value;
 }
 
-export async function importLessonFile(filePath: string, repositories: Repositories) {
-  const sourceType = sourceTypeFromPath(filePath);
-  const rawText = await extractText(filePath, sourceType);
+export async function importLessonBytes(filename: string, source: Uint8Array, repositories: Repositories) {
+  const originalFilename = path.basename(filename).trim();
+  if (!originalFilename || originalFilename.length > 255) throw new Error("Choose a lesson filename under 256 characters.");
+  const sourceType = sourceTypeFromPath(originalFilename);
+  const rawText = await extractText(Buffer.from(source), sourceType);
   const normalizedText = normalizeLessonText(rawText);
   if (!normalizedText) throw new Error("No readable text was found in this lesson file.");
   if (normalizedText.length > MAX_NORMALIZED_CHARS) {
     throw new Error("Extracted lesson text exceeds the 300,000 character limit.");
   }
 
-  const title = path.basename(filePath, path.extname(filePath)).replace(/[_-]+/g, " ").trim() || "Untitled lesson";
+  const title = path.basename(originalFilename, path.extname(originalFilename)).replace(/[_-]+/g, " ").trim() || "Untitled lesson";
   const request = lessonImportRequestSchema.parse({
     title,
     language: "en",
     sourceType,
-    originalFilename: path.basename(filePath),
+    originalFilename,
     normalizedText,
   });
   const contentSha256 = createHash("sha256").update(request.normalizedText, "utf8").digest("hex");
@@ -101,4 +102,8 @@ export async function importLessonFile(filePath: string, repositories: Repositor
   const lesson = await repositories.lessons.get(result.lesson.id);
   if (!lesson) throw new Error("The lesson was saved but could not be loaded.");
   return { lesson, duplicate: result.duplicate };
+}
+
+export async function importLessonFile(filePath: string, repositories: Repositories) {
+  return importLessonBytes(path.basename(filePath), await readFile(filePath), repositories);
 }

@@ -35,6 +35,8 @@
 - [x] Add normalization/block unit tests and a `TEST_DATABASE_URL`-gated PostgreSQL repository integration test.
 - [x] Add parser fixtures and import-path tests for TXT, Markdown, text PDF, and DOCX extraction.
 - [x] Lessons listing/detail and generated quiz draft listing wired to PostgreSQL repositories.
+- [x] Existing integrated browser teacher's **Create Game** flow now uses the Arron content pipeline through an authenticated loopback API hosted in Electron main: import, AI draft, evidence-backed review/edit, question and quiz approval, and approved `GameSnapshot` hosting. The API validates teacher tokens through the runtime and does not expose OpenAI/database credentials to the browser.
+- [ ] With local PostgreSQL, runtime and OpenAI configuration, verify the browser teacher workflow end-to-end; unit/API tests and browser production build pass, but live provider generation has not been run.
 - [x] OpenAI Responses API generation service with strict structured output, source-quote evidence mapping, prompt/model tracking, and failed-job reporting.
 - [x] Lesson detail generates persisted drafts; quizzes remain in `needs-review` until the teacher explicitly approves them.
 - [x] Settings screen shows PostgreSQL/OpenAI readiness without exposing credentials.
