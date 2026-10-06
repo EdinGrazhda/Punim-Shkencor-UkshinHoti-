@@ -17,5 +17,10 @@ contextBridge.exposeInMainWorld("teacherBridge", {
   approvePendingQuestions: (quizId: string) => ipcRenderer.invoke("teacher:approve-pending-questions", quizId),
   regenerateQuestion: (questionId: string) => ipcRenderer.invoke("teacher:regenerate-question", questionId),
   exportApprovedSnapshot: (quizId: string) => ipcRenderer.invoke("teacher:export-approved-snapshot", quizId),
+  createHostSession: (quizId: string, email: string, password: string) => ipcRenderer.invoke("teacher:create-host-session", { quizId, email, password }),
+  listHostSessions: () => ipcRenderer.invoke("teacher:list-host-sessions"),
+  getHostState: (code: string) => ipcRenderer.invoke("teacher:host-state", code),
+  sendHostCommand: (code: string, command: unknown) => ipcRenderer.invoke("teacher:host-command", code, command),
+  getHostResults: (code: string) => ipcRenderer.invoke("teacher:host-results", code),
   getSettingsStatus: () => ipcRenderer.invoke("teacher:get-settings-status"),
 });

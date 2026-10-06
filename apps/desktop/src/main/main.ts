@@ -3,16 +3,19 @@ import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDatabase, createRepositories } from "@ckadinti/database";
-import { gameSnapshotFromApprovedQuestions, generateQuizRequestSchema, lessonIdSchema, lessonImportResultSchema, lessonListItemSchema, manualQuestionCreateSchema, questionIdSchema, questionReviewDecisionSchema, quizIdSchema, quizReorderSchema, reviewQuestionSaveSchema } from "@ckadinti/contracts";
+import { generateQuizRequestSchema, lessonIdSchema, lessonImportResultSchema, lessonListItemSchema, manualQuestionCreateSchema, questionIdSchema, questionReviewDecisionSchema, quizIdSchema, quizReorderSchema, reviewQuestionSaveSchema } from "@ckadinti/contracts";
+import { z } from "zod";
 import { importLessonFile } from "./services/lesson-import.js";
+import { loadApprovedSnapshot } from "./services/approved-quiz.js";
 import { generateQuizFromLesson, regenerateQuestionFromLesson } from "./services/quiz-generation.js";
+import { commandHostedSession, createHostedQuizSession, getHostedSessionResults, getHostedSessionState, listHostedSessions } from "./services/runtime-host.js";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
 const currentFile = fileURLToPath(import.meta.url);
 const currentDirectory = path.dirname(currentFile);
-if (!app.isPackaged) dotenv.config({ path: path.resolve(currentDirectory, "../../../.env") });
+if (!app.isPackaged) dotenv.config({ path: path.resolve(currentDirectory, "../../../../.env") });
 
 let repositories: ReturnType<typeof createRepositories> | undefined;
 let databaseConnection: ReturnType<typeof createDatabase> | undefined;
@@ -27,6 +30,14 @@ function getRepositories(): ReturnType<typeof createRepositories> {
 }
 
 function registerIpc(): void {
+  const hostResult = async (operation: () => unknown | Promise<unknown>) => {
+    try { return { ok: true, data: await operation() }; }
+    catch (error) { return { ok: false, error: { code: "HOST_REQUEST_FAILED", message: error instanceof Error ? error.message : "Could not reach the classroom host." } }; }
+  };
+  ipcMain.handle("teacher:list-host-sessions", () => hostResult(listHostedSessions));
+  ipcMain.handle("teacher:host-state", (_event, code: unknown) => hostResult(() => getHostedSessionState(code)));
+  ipcMain.handle("teacher:host-command", (_event, code: unknown, command: unknown) => hostResult(() => commandHostedSession(code, command)));
+  ipcMain.handle("teacher:host-results", (_event, code: unknown) => hostResult(() => getHostedSessionResults(code)));
   ipcMain.handle("teacher:import-lesson", async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openFile"],
@@ -215,18 +226,26 @@ function registerIpc(): void {
     const parsed = quizIdSchema.safeParse(value);
     if (!parsed.success) return { ok: false, error: { code: "INVALID_QUIZ_ID", message: "The quiz id is invalid." } };
     try {
-      const quiz = await getRepositories().quizzes.getForReview(parsed.data);
-      if (!quiz) return { ok: false, error: { code: "QUIZ_NOT_FOUND", message: "The quiz could not be found." } };
-      if (quiz.status !== "approved" || quiz.questions.some((question) => question.reviewStatus !== "approved")) {
-        return { ok: false, error: { code: "QUIZ_NOT_APPROVED", message: "Approve every question and the quiz before exporting a host snapshot." } };
-      }
-      const data = gameSnapshotFromApprovedQuestions({
-        id: quiz.id, title: quiz.title,
-        questions: quiz.questions.map((question) => ({ id: question.id, prompt: question.prompt, explanation: question.explanation, options: question.options, timeLimitMs: 30_000 })),
-      });
+      const data = await loadApprovedSnapshot(parsed.data, getRepositories());
       return { ok: true, data };
     } catch (error) {
       return { ok: false, error: { code: "SNAPSHOT_EXPORT_FAILED", message: error instanceof Error ? error.message : "Could not export this quiz." } };
+    }
+  });
+
+  ipcMain.handle("teacher:create-host-session", async (_event, value: unknown) => {
+    const request = z.object({
+      quizId: quizIdSchema,
+      email: z.string().trim().email().max(254),
+      password: z.string().min(1).max(128),
+    }).safeParse(value);
+    if (!request.success) return { ok: false, error: { code: "INVALID_HOST_REQUEST", message: "Enter a valid teacher email and password." } };
+    try {
+      const snapshot = await loadApprovedSnapshot(request.data.quizId, getRepositories());
+      const data = await createHostedQuizSession(snapshot, request.data.email, request.data.password);
+      return { ok: true, data };
+    } catch (error) {
+      return { ok: false, error: { code: "HOST_SESSION_CREATE_FAILED", message: error instanceof Error ? error.message : "Could not start this classroom session." } };
     }
   });
 
@@ -258,7 +277,7 @@ async function createWindow(): Promise<void> {
     minWidth: 1024,
     minHeight: 680,
     webPreferences: {
-      preload: path.join(currentDirectory, "../preload/preload.js"),
+      preload: path.join(currentDirectory, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

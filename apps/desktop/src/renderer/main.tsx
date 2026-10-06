@@ -1,6 +1,7 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useEffect, useState, type FormEvent } from "react";
 import type { JSX } from "react";
 import { createRoot } from "react-dom/client";
+import { HostWorkspace } from "./HostWorkspace";
 import "./styles.css";
 
 type Page = "Dashboard" | "Lessons" | "Quizzes" | "Games" | "Reports" | "Settings";
@@ -8,7 +9,8 @@ type LessonSummary = { id: string; title: string; subject: string | null; langua
 type LessonDetail = LessonSummary & { normalizedText: string; blocks: Array<{ id: string; ordinal: number; heading: string | null; charStart: number; charEnd: number }> };
 type QuizSummary = { id: string; lessonId: string | null; title: string; language: string; difficulty: string; status: string; updatedAt: string };
 type QuestionEdit = { prompt: string; explanation: string; topic: string; difficulty: string; options: Array<{ text: string; isCorrect: boolean }> };
-type TeacherGameSnapshot = { id: string; title: string; questions: Array<{ id: string; prompt: string; options: string[]; correctOption: number; timeLimitMs: number }> };
+type TeacherGameSnapshot = { id: string; title: string; questions: Array<{ id: string; prompt: string; options: string[]; correctOption: number; timeLimitMs: number; explanation?: string }> };
+type HostedQuizSession = { code: string; joinUrl: string; title: string; questionCount: number };
 type TeacherSettingsStatus = { databaseConnected: boolean; openAiConfigured: boolean; model: string; sourceFormats: string[] };
 
 function TeacherApp(): JSX.Element {
@@ -29,7 +31,15 @@ function TeacherApp(): JSX.Element {
   const [focusBlockOrdinal, setFocusBlockOrdinal] = useState<number | null>(null);
   const [showManualForm, setShowManualForm] = useState(false);
   const [hostSnapshot, setHostSnapshot] = useState<TeacherGameSnapshot | null>(null);
+  const [hostFormOpen, setHostFormOpen] = useState(false);
+  const [hostBusy, setHostBusy] = useState(false);
+  const [teacherEmail, setTeacherEmail] = useState("");
+  const [teacherPassword, setTeacherPassword] = useState("");
+  const [hostedSession, setHostedSession] = useState<HostedQuizSession | null>(null);
   const [settingsStatus, setSettingsStatus] = useState<TeacherSettingsStatus | null>(null);
+  useEffect(() => {
+    if (page !== "Quizzes") { setHostFormOpen(false); setTeacherPassword(""); }
+  }, [page]);
   const [manualQuestion, setManualQuestion] = useState<QuestionEdit & { kind: string }>({
     kind: "multiple-choice", prompt: "", explanation: "", topic: "General", difficulty: "medium",
     options: [{ text: "", isCorrect: true }, { text: "", isCorrect: false }, { text: "", isCorrect: false }, { text: "", isCorrect: false }],
@@ -312,6 +322,41 @@ function TeacherApp(): JSX.Element {
     }
   }
 
+  async function createHostSession(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    if (!reviewQuiz) return;
+    setHostBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await window.teacherBridge.createHostSession(reviewQuiz.id, teacherEmail, teacherPassword);
+      if (!result.ok || !result.data) {
+        setError(result.error?.message ?? "Could not start the approved quiz on the local host.");
+        return;
+      }
+      setHostedSession(result.data);
+      setPage("Games");
+      setHostFormOpen(false);
+      setTeacherPassword("");
+      setNotice("Approved quiz sent to the local classroom host. Share the student join link below.");
+    } catch {
+      setError("Could not start the approved quiz on the local host.");
+    } finally {
+      setTeacherPassword("");
+      setHostBusy(false);
+    }
+  }
+
+  async function copyStudentJoinLink(): Promise<void> {
+    if (!hostedSession) return;
+    try {
+      await navigator.clipboard.writeText(hostedSession.joinUrl);
+      setNotice("Student join link copied.");
+    } catch {
+      setError("Clipboard access is unavailable. Select and copy the student join link below.");
+    }
+  }
+
   async function loadSettingsStatus(): Promise<void> {
     const result = await window.teacherBridge.getSettingsStatus();
     if (result.ok && result.data) setSettingsStatus(result.data);
@@ -339,8 +384,10 @@ function TeacherApp(): JSX.Element {
     const allApproved = reviewQuiz.questions.length > 0 && reviewQuiz.questions.every((question) => question.reviewStatus === "approved");
     const pendingCount = reviewQuiz.questions.filter((question) => question.reviewStatus === "needs-review").length;
     return <section className="review-page">
-      <div className="review-toolbar"><button className="secondary" disabled={reviewBusy} onClick={() => setReviewQuiz(null)} type="button">← All quizzes</button><div><p className="eyebrow accent">{reviewQuiz.status === "approved" ? "Approved quiz" : "Teacher review required"}</p><h2>{reviewQuiz.title}</h2><p>{reviewQuiz.questions.length} questions · {reviewQuiz.difficulty} · {reviewQuiz.language.toUpperCase()}</p></div><div className="review-toolbar-actions">{reviewQuiz.status === "approved" && <button className="secondary" disabled={reviewBusy} onClick={() => void exportApprovedSnapshot()} type="button">Export host snapshot</button>}<button className="primary" disabled={reviewBusy || dirtyQuestionIds.size > 0 || !allApproved || reviewQuiz.status === "approved"} onClick={() => void approveQuiz()} type="button">{reviewQuiz.status === "approved" ? "Quiz approved" : "Approve quiz"}</button></div></div>
+      <div className="review-toolbar"><button className="secondary" disabled={reviewBusy || hostBusy} onClick={() => setReviewQuiz(null)} type="button">← All quizzes</button><div><p className="eyebrow accent">{reviewQuiz.status === "approved" ? "Approved quiz" : "Teacher review required"}</p><h2>{reviewQuiz.title}</h2><p>{reviewQuiz.questions.length} questions · {reviewQuiz.difficulty} · {reviewQuiz.language.toUpperCase()}</p></div><div className="review-toolbar-actions">{reviewQuiz.status === "approved" && <><button className="secondary" disabled={reviewBusy || hostBusy} onClick={() => void exportApprovedSnapshot()} type="button">Export host snapshot</button><button className="primary" disabled={reviewBusy || hostBusy || dirtyQuestionIds.size > 0 || !allApproved} onClick={() => { setError(""); setHostFormOpen((open) => !open); }} type="button">{hostBusy ? "Starting…" : "Start LAN session"}</button></>}<button className="primary" disabled={reviewBusy || hostBusy || dirtyQuestionIds.size > 0 || !allApproved || reviewQuiz.status === "approved"} onClick={() => void approveQuiz()} type="button">{reviewQuiz.status === "approved" ? "Quiz approved" : "Approve quiz"}</button></div></div>
       {notice && <p className="file-note" role="status">{notice}</p>}{error && <p className="error-note" role="alert">{error}</p>}
+      {hostFormOpen && <form className="review-card host-session-form" onSubmit={(event) => void createHostSession(event)}><h3>Start this approved quiz on the local host</h3><p>Sign in with a teacher account that has changed its temporary password. Use the teacher account created by your administrator. Your password is cleared after sign-in.</p><label>Teacher email<input autoComplete="username" required type="email" value={teacherEmail} onChange={(event) => setTeacherEmail(event.target.value)} /></label><label>Teacher password<input autoComplete="current-password" required type="password" value={teacherPassword} onChange={(event) => setTeacherPassword(event.target.value)} /></label><div className="review-actions"><button className="secondary" disabled={hostBusy} onClick={() => { setHostFormOpen(false); setTeacherPassword(""); }} type="button">Cancel</button><button className="primary" disabled={hostBusy} type="submit">{hostBusy ? "Starting…" : "Authenticate and start"}</button></div></form>}
+      {hostedSession && <aside className="snapshot-panel host-session-panel"><div><strong>Live session ready · {hostedSession.title}</strong><button className="text-button" onClick={() => void copyStudentJoinLink()} type="button">Copy student link</button></div><p>Join code: <strong>{hostedSession.code}</strong> · {hostedSession.questionCount} approved questions</p><p>Student join link: <code>{hostedSession.joinUrl}</code></p><p>Open Games to control this session and Reports to review final results.</p></aside>}
       {hostSnapshot && <aside className="snapshot-panel"><div><strong>Edin-compatible GameSnapshot</strong><button className="text-button" onClick={() => void copyHostSnapshot()} type="button">Copy JSON</button></div><p>This teacher-only snapshot includes the answer key for the authoritative host. Do not send it to student clients.</p><pre>{JSON.stringify(hostSnapshot, null, 2)}</pre></aside>}
       <div className="review-bulk-actions"><button className="secondary" disabled={reviewBusy || !pendingCount || dirtyQuestionIds.size > 0} onClick={() => void approvePendingQuestions()} type="button">Approve {pendingCount} pending questions</button><button className="secondary" disabled={reviewBusy || dirtyQuestionIds.size > 0 || reviewQuiz.status === "approved"} onClick={() => setShowManualForm((shown) => !shown)} type="button">{showManualForm ? "Cancel manual question" : "Add question manually"}</button>{dirtyQuestionIds.size > 0 && <span>Save your edits before approving or adding questions.</span>}</div>
       {showManualForm && <form className="review-card manual-question-form" onSubmit={(event) => { event.preventDefault(); void createManualQuestion(); }}><h3>New teacher-created question</h3><label>Question kind<select value={manualQuestion.kind} onChange={(event) => updateManualQuestion({ kind: event.target.value, options: event.target.value === "true-false" ? [{ text: "True", isCorrect: true }, { text: "False", isCorrect: false }] : [{ text: "", isCorrect: true }, { text: "", isCorrect: false }, { text: "", isCorrect: false }, { text: "", isCorrect: false }] })}><option value="multiple-choice">Multiple choice</option><option value="true-false">True / false</option></select></label><label>Question prompt<textarea required value={manualQuestion.prompt} onChange={(event) => updateManualQuestion({ prompt: event.target.value })} /></label><div className="review-fields"><label>Topic<input required value={manualQuestion.topic} onChange={(event) => updateManualQuestion({ topic: event.target.value })} /></label><label>Difficulty<select value={manualQuestion.difficulty} onChange={(event) => updateManualQuestion({ difficulty: event.target.value })}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label></div><fieldset className="answer-options"><legend>Answer options — select exactly one correct answer</legend>{manualQuestion.options.map((option, index) => <label className="answer-option" key={index}><input type="radio" name="manual-correct" checked={option.isCorrect} onChange={() => updateManualQuestion({ options: manualQuestion.options.map((item, itemIndex) => ({ ...item, isCorrect: itemIndex === index })) })} /><input required aria-label={`Manual answer option ${index + 1}`} value={option.text} onChange={(event) => updateManualQuestion({ options: manualQuestion.options.map((item, itemIndex) => itemIndex === index ? { ...item, text: event.target.value } : item) })} /></label>)}</fieldset><label>Explanation<textarea required value={manualQuestion.explanation} onChange={(event) => updateManualQuestion({ explanation: event.target.value })} /></label><button className="primary" disabled={reviewBusy} type="submit">Add as pending review</button></form>}
@@ -361,7 +408,7 @@ function TeacherApp(): JSX.Element {
   }
 
   function renderReports(): JSX.Element {
-    return <section className="report-grid"><article className="source-block"><p className="eyebrow accent">Teacher content</p><h2>{quizzes.filter((quiz) => quiz.status === "approved").length} approved quizzes</h2><p>{quizzes.filter((quiz) => quiz.status !== "approved").length} quizzes still in review</p><p>{lessons.length} lessons in the local library</p></article><article className="empty-state"><strong>Classroom results aren’t connected yet</strong><span>Reports will show session participation and results after Edin’s runtime event and PostgreSQL analytics integration is reconciled into this repository. Scores remain owned by the game host.</span></article></section>;
+    return <><section className="report-grid"><article className="source-block"><p className="eyebrow accent">Teacher content</p><h2>{quizzes.filter((quiz) => quiz.status === "approved").length} approved quizzes</h2><p>{quizzes.filter((quiz) => quiz.status !== "approved").length} quizzes still in review</p><p>{lessons.length} lessons in the local library</p></article></section><HostWorkspace key="reports" reportsOnly /></>;
   }
 
   function renderSettings(): JSX.Element {
@@ -406,7 +453,7 @@ function TeacherApp(): JSX.Element {
 
   return <main className="shell">
     <aside className="sidebar"><div className="brand">CkaDinTi</div><p className="eyebrow">Teacher workspace</p><nav aria-label="Teacher navigation">{(["Dashboard", "Lessons", "Quizzes", "Games", "Reports", "Settings"] as Page[]).map((item) => <button className={page === item ? "nav-item active" : "nav-item"} key={item} onClick={() => setPage(item)} type="button">{item}</button>)}</nav></aside>
-    <section className="content"><header className="topbar"><div><p className="eyebrow">Local classroom control</p><h1>{page === "Dashboard" ? "Good morning, teacher" : page}</h1></div><span className="status"><span className="status-dot" /> Ready for Cyber Raid</span></header>{page === "Dashboard" ? renderDashboard() : page === "Lessons" ? renderLessons() : page === "Quizzes" ? renderQuizReview() : page === "Reports" ? renderReports() : page === "Settings" ? renderSettings() : <div className="empty-state page-placeholder"><strong>{page} is waiting on runtime integration</strong><span>Approved quizzes can be exported in the host’s GameSnapshot contract. Live LAN host controls will connect after Edin’s runtime package is reconciled.</span></div>}</section>
+    <section className="content"><header className="topbar"><div><p className="eyebrow">Local classroom control</p><h1>{page === "Dashboard" ? "Good morning, teacher" : page}</h1></div><span className="status"><span className="status-dot" /> Teacher workspace</span></header>{page === "Dashboard" ? renderDashboard() : page === "Lessons" ? renderLessons() : page === "Quizzes" ? renderQuizReview() : page === "Reports" ? renderReports() : page === "Settings" ? renderSettings() : <HostWorkspace key="games" />}</section>
   </main>;
 }
 

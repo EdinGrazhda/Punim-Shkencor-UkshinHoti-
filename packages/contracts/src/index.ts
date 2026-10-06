@@ -91,7 +91,7 @@ export const ApprovedQuestion = z.object({
   prompt: z.string().min(1),
   options: z.array(z.string().min(1)).min(2).max(6),
   correctOption: z.number().int().nonnegative(),
-  timeLimitMs: z.number().int().positive().max(10 * 60_000),
+  timeLimitMs: z.number().int().positive().max(10 * 60_000).default(10_000),
   explanation: z.string().trim().min(1).max(2000).optional(),
 }).superRefine((question, context) => {
   if (question.correctOption >= question.options.length) {

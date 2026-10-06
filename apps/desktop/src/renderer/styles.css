@@ -91,5 +91,20 @@ h2 { max-width: 580px; margin-bottom: 14px; font-size: 35px; line-height: 1.1; }
 .snapshot-panel > div { display: flex; justify-content: space-between; align-items: center; }
 .snapshot-panel > p { color: #d6c894; font-size: 12px; }
 .snapshot-panel pre { max-height: 320px; overflow: auto; padding: 12px; border-radius: 8px; background: #08151f; color: #cbe5d9; font-size: 11px; }
+.host-session-form h3 { margin: 0; color: #e8f1fa; }
+.host-session-form > p, .host-session-panel > p { color: #a8bbce; font-size: 12px; line-height: 1.5; }
+.host-session-panel code { overflow-wrap: anywhere; color: #cbe5d9; }
+.host-workspace { display: grid; gap: 18px; margin-top: 20px; }
+.host-workspace > label { display: grid; gap: 8px; }
+.host-workspace select, .host-workspace input { padding: 10px; border: 1px solid #42546a; border-radius: 8px; background: #122235; color: #e8f1fa; }
+.host-workspace .review-actions { flex-wrap: wrap; align-items: end; }
+.host-workspace .review-actions label { display: grid; gap: 6px; }
+.host-players { list-style: none; padding: 0; display: grid; gap: 10px; }
+.host-players li { display: flex; justify-content: space-between; align-items: center; }
+.host-results { width: 100%; text-align: left; border-collapse: collapse; margin-top: 12px; }
+.host-results td, .host-results th { padding: 10px; border-bottom: 1px solid #42546a; }
+.host-workspace details { padding: 12px 0; overflow-x: auto; }
+.host-workspace summary { cursor: pointer; }
+.join-link { overflow-wrap: anywhere; }
 .danger { border: 1px solid #834b58; border-radius: 9px; padding: 9px 12px; color: #ffd2d8; background: #3a2029; cursor: pointer; }
 @media (max-width: 760px) { .review-toolbar { align-items: flex-start; flex-direction: column; } .review-toolbar-actions { align-items: stretch; flex-direction: column; } .review-fields { grid-template-columns: 1fr; } }

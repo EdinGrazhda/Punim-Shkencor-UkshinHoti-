@@ -25,6 +25,7 @@ __pycache__/
 .graphify/
 .graphify_*.json
 /graphify-out/
+/output/qa/
 
 # Local environment and secrets
 .env

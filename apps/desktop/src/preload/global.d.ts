@@ -1,4 +1,6 @@
-export {};
+import type { HostCommand, PublicSessionState } from "@ckadinti/contracts";
+import type { HostedResults, HostedSession } from "../main/services/runtime-host.js";
+type HostResult<T> = Promise<{ ok: boolean; data?: T; error?: { code: string; message: string } }>;
 
 declare global {
   type TeacherReviewQuestion = {
@@ -10,6 +12,10 @@ declare global {
   type TeacherQuizReview = { id: string; lessonId: string | null; title: string; language: string; difficulty: string; status: string; questions: TeacherReviewQuestion[] };
   interface Window {
     teacherBridge: {
+      listHostSessions: () => HostResult<HostedSession[]>;
+      getHostState: (code: string) => HostResult<PublicSessionState>;
+      sendHostCommand: (code: string, command: HostCommand) => HostResult<PublicSessionState>;
+      getHostResults: (code: string) => HostResult<HostedResults>;
       importLesson: () => Promise<{
         ok: boolean;
         data?: { lesson: { id: string; title: string }; duplicate: boolean } | null;
@@ -34,6 +40,7 @@ declare global {
       approvePendingQuestions: (quizId: string) => Promise<{ ok: boolean; data?: { count: number }; error?: { code: string; message: string } }>;
       regenerateQuestion: (questionId: string) => Promise<{ ok: boolean; data?: { questionId: string; prompt: string; reviewStatus: "needs-review" }; error?: { code: string; message: string } }>;
       exportApprovedSnapshot: (quizId: string) => Promise<{ ok: boolean; data?: { id: string; title: string; questions: Array<{ id: string; prompt: string; options: string[]; correctOption: number; timeLimitMs: number }> }; error?: { code: string; message: string } }>;
+      createHostSession: (quizId: string, email: string, password: string) => Promise<{ ok: boolean; data?: { code: string; joinUrl: string; title: string; questionCount: number }; error?: { code: string; message: string } }>;
       getSettingsStatus: () => Promise<{ ok: boolean; data?: { databaseConnected: boolean; openAiConfigured: boolean; model: string; sourceFormats: string[] }; error?: { code: string; message: string } }>;
     };
   }

@@ -7,9 +7,9 @@
   "scripts": {
     "dev:desktop": "pnpm --filter @ckadinti/desktop dev",
     "dev:student": "pnpm --filter @ckadinti/student dev",
-    "dev:host": "pnpm --filter @ckadinti/runtime-host dev",
+    "dev:host": "pnpm --filter @ckadinti/runtime-host exec tsx watch --env-file-if-exists=../../.env src/index.ts",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test && node scripts/runtime-smoke.mjs"
   }
 }
