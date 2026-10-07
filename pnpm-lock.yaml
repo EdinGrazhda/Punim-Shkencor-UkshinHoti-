@@ -180,6 +180,12 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      drizzle-orm:
+        specifier: ^0.43.1
+        version: 0.43.1(@types/pg@8.23.1)(pg@8.23.1)(postgres@3.4.9)
+      postgres:
+        specifier: ^3.4.7
+        version: 3.4.9
       tsx:
         specifier: ^4.19.2
         version: 4.23.15

@@ -1,42 +1,102 @@
-# JavaScript, TypeScript, Vite, and Electron build output
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+
+# Workspace dependencies and package-manager caches
 node_modules/
+.pnpm-store/
+.npm/
+.yarn/cache/
+.yarn/unplugged/
+.pnp.*
+
+# JavaScript, TypeScript, Vite, and Electron build output
 dist/
 build/
 out/
+release/
 .vite/
+.turbo/
+.cache/
+.parcel-cache/
 coverage/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+
+# Test output
+.nyc_output/
 playwright-report/
 test-results/
-*.tsbuildinfo
+blob-report/
 
-# Python and Graphify runtime/cache output
+# Python and Graphify local state
 venv/
 .venv/
 env/
 __pycache__/
 *.py[cod]
+*.so
+*.egg
 *.egg-info/
 .eggs/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-*.so
-*.egg
-.graphify/
-.graphify_*.json
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+pip-wheel-metadata/
+site/
+/.graphify/
 /graphify-out/
-/output/qa/
+/.graphify_*.json
 
-# Local environment and secrets
-.env
-.env.*
-!.env.example
-
-# Local database files
+# Local databases and runtime state
 *.db
+*.db-journal
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.pid
+*.pid.lock
 
-# Operating-system files
+# Logs and diagnostic output
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+debug.log*
+/output/qa/
+
+# Editor and operating-system state
+.idea/
+.vscode/
+.history/
+*.swp
+*.swo
+*~
 .DS_Store
+.AppleDouble
+.LSOverride
 Thumbs.db
+Desktop.ini
+
+# Temporary and merge-recovery files
+tmp/
+temp/
+.tmp/
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej

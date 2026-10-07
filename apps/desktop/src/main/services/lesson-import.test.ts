@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,12 +15,12 @@ function createLessonRepositoryStub() {
   const repositories = {
     lessons: {
       async create(input: CreateLessonInput) {
-        const id = crypto.randomUUID();
+        const id = randomUUID();
         const now = new Date();
         const lesson = {
           ...input, subject: input.subject ?? null, originalFilename: input.originalFilename ?? null,
           id, createdAt: now, updatedAt: now,
-          blocks: input.blocks.map((block, ordinal) => ({ ...block, id: crypto.randomUUID(), lessonId: id, ordinal, createdAt: now, updatedAt: now })),
+          blocks: input.blocks.map((block, ordinal) => ({ ...block, id: randomUUID(), lessonId: id, ordinal, createdAt: now, updatedAt: now })),
         };
         lessons.set(id, lesson);
         return { lesson, duplicate: false };
@@ -62,7 +63,7 @@ describe("lesson text normalization", () => {
   ])("imports %s into normalized text and evidence blocks", async (fixtureName, extension, expectedText) => {
     const fixture = await readFile(path.join(fixtures, fixtureName), "utf8");
     const content = fixtureName.endsWith(".b64") ? Buffer.from(fixture.trim(), "base64") : Buffer.from(fixture, "utf8");
-    const lessonPath = path.join(temporaryDirectory, `fixture-${crypto.randomUUID()}.${extension}`);
+    const lessonPath = path.join(temporaryDirectory, `fixture-${randomUUID()}.${extension}`);
     await writeFile(lessonPath, content);
     const imported = await importLessonFile(lessonPath, createLessonRepositoryStub());
 

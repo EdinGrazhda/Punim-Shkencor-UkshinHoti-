@@ -1,9 +1,48 @@
-import { boolean, integer, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
 };
+
+export const teachers = pgTable("teachers", {
+  id: uuid("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("teacher"),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("teachers_email_idx").on(table.email)]);
+
+export const teacherSessions = pgTable("teacher_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  teacherId: uuid("teacher_id").notNull().references(() => teachers.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+}, (table) => [index("teacher_sessions_expires_at_idx").on(table.expiresAt)]);
+
+export const studentAccounts = pgTable("student_accounts", {
+  id: uuid("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("student_accounts_email_idx").on(table.email)]);
+
+export const studentSessions = pgTable("student_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  studentId: uuid("student_id").notNull().references(() => studentAccounts.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+}, (table) => [index("student_sessions_expires_at_idx").on(table.expiresAt)]);
+
+export const runtimeSessions = pgTable("runtime_sessions", {
+  code: text("code").primaryKey(),
+  ownerTeacherId: uuid("owner_teacher_id").references(() => teachers.id, { onDelete: "set null" }),
+  snapshot: jsonb("snapshot").notNull(),
+  state: jsonb("state").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [index("runtime_sessions_owner_created_idx").on(table.ownerTeacherId, table.createdAt)]);
 
 export const lessons = pgTable("lessons", {
   id: text("id").primaryKey(),

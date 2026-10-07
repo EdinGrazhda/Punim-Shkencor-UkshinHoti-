@@ -91,10 +91,10 @@ assert.equal(started.json().state.question.timeLimitMs, 1000);
 const answered = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/answers", headers: { authorization: `Bearer ${playerToken}` }, payload: { playerId, questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000003" } });
 assert.equal(answered.statusCode, 200);
 assert.equal(answered.json().accepted, true);
-assert.equal(answered.json().feedback.correctOption, 1);
+assert.equal(answered.json().feedback, undefined);
 const schoolLeaderboard = await app.inject({ method: "GET", url: "/api/v1/students/leaderboard" });
 assert.equal(schoolLeaderboard.statusCode, 200);
-assert.equal(schoolLeaderboard.json().leaderboard.find((row: { id: string }) => row.id === `account:${studentRegistration.json().student.id}`).gamesPlayed, 1);
+assert.equal(schoolLeaderboard.json().leaderboard.find((row: { id: string }) => row.id === `account:${studentRegistration.json().student.id}`).gamesPlayed, 0);
 
 const duplicate = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/answers", headers: { authorization: `Bearer ${playerToken}` }, payload: { playerId, questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000003" } });
 assert.equal(duplicate.json().accepted, true);
@@ -102,20 +102,22 @@ assert.equal(duplicate.json().duplicate, true);
 
 const hidden = await app.inject({ method: "GET", url: "/api/v1/sessions/REST01/me", headers: { authorization: `Bearer ${playerToken}`, "x-player-id": playerId } });
 assert.equal(hidden.json().available, true);
-assert.equal(hidden.json().correctOption, 1);
-assert.equal(hidden.json().reward.completed, false);
-assert.equal(hidden.json().reward.hackBox, undefined);
-const forbiddenReward = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/rewards", payload: { playerId, questionIndex: 0, boxIndex: 0 } });
-assert.equal(forbiddenReward.statusCode, 401);
-const chosenReward = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/rewards", headers: { authorization: `Bearer ${playerToken}` }, payload: { playerId, questionIndex: 0, boxIndex: 0 } });
-assert.equal(chosenReward.statusCode, 200);
-assert.equal(chosenReward.json().reward.selectedBox, 0);
+assert.equal(hidden.json().answered, true);
+for (const key of ["correct", "correctOption", "score", "questionScore", "xp", "streak"]) {
+  assert.equal(hidden.json()[key], undefined, `player endpoint must hide ${key} before reveal`);
+}
 const revealed = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/commands", headers: { authorization: `Bearer ${createdBody.hostToken}` }, payload: { command: { type: "reveal" } } });
 assert.equal(revealed.statusCode, 200);
 assert.equal(revealed.json().state.reveal.correctOption, 1);
+const revealedPlayerResult = await app.inject({ method: "GET", url: "/api/v1/sessions/REST01/me", headers: { authorization: `Bearer ${playerToken}`, "x-player-id": playerId } });
+assert.equal(revealedPlayerResult.json().correctOption, 1);
+assert.equal(revealedPlayerResult.json().correct, true);
+assert.ok(revealedPlayerResult.json().score > 0);
 const ended = await app.inject({ method: "POST", url: "/api/v1/sessions/REST01/commands", headers: { authorization: `Bearer ${createdBody.hostToken}` }, payload: { command: { type: "next" } } });
 assert.equal(ended.statusCode, 200);
 assert.equal(ended.json().state.phase, "ended");
+const completedLeaderboard = await app.inject({ method: "GET", url: "/api/v1/students/leaderboard" });
+assert.equal(completedLeaderboard.json().leaderboard.find((row: { id: string }) => row.id === `account:${studentRegistration.json().student.id}`).gamesPlayed, 1);
 const blockedDetailedResults = await app.inject({ method: "GET", url: "/api/v1/sessions/REST01/host/results" });
 assert.equal(blockedDetailedResults.statusCode, 401);
 const detailedResults = await app.inject({ method: "GET", url: "/api/v1/sessions/REST01/host/results", headers: { authorization: `Bearer ${createdBody.hostToken}` } });

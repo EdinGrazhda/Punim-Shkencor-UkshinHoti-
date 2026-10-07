@@ -7,7 +7,7 @@
     "dev": "electron-forge start",
     "build": "electron-forge package",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --root ."
   },
   "dependencies": {
     "@ckadinti/contracts": "workspace:*",

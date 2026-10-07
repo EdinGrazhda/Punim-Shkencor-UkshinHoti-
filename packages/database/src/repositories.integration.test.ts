@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { createDatabase } from "./client.js";
 import { createRepositories } from "./repositories.js";
@@ -22,7 +23,7 @@ describe.skipIf(!testDatabaseUrl)("PostgreSQL lesson repository", () => {
   });
 
   it("persists lesson blocks and identifies duplicate content", async () => {
-    const contentSha256 = `integration-${crypto.randomUUID()}`;
+    const contentSha256 = `integration-${randomUUID()}`;
     const input = {
       title: "Repository integration fixture",
       subject: undefined,

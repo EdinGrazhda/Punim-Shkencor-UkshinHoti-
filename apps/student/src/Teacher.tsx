@@ -4,8 +4,9 @@ import { motion } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
 import { Activity, ArrowRight, BarChart3, CheckCircle2, ChevronDown, ChevronRight, ClipboardCopy, Copy, Expand, Flame, Gamepad2, Home, LockKeyhole, Menu, MinusCircle, MoreHorizontal, Pause, Play, Plus, Radio, Settings2, Shield, Square, Star, Trophy, Users, X, XCircle } from "lucide-react";
 import type { GameSnapshot, HostCommand, PublicSessionState } from "@ckadinti/contracts";
-import { api, demoQuiz, readTeacherIdentity, type HostIdentity, type HostResults, watchSession } from "./api";
+import { api, demoQuiz, readTeacherIdentity, type HostIdentity, type HostResults, type TeacherSessionSummary, watchSession } from "./api";
 import { TeacherQuizStudio } from "./TeacherQuizStudio";
+import "./teacher-history.css";
 import { Brand, Emblem } from "./Student";
 import { Badge, Button, Card, ConfirmDialog, Progress, Switch } from "./ui";
 
@@ -23,6 +24,8 @@ export function Teacher() {
   const [state, setState] = useState<PublicSessionState | null>(null);
   const [gameSnapshot, setGameSnapshot] = useState<GameSnapshot>(demoQuiz);
   const [leaderboard, setLeaderboard] = useState<HostResults | null>(null);
+  const [sessionHistory, setSessionHistory] = useState<TeacherSessionSummary[]>([]);
+  const [selectedHistoryCode, setSelectedHistoryCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -32,8 +35,68 @@ export function Teacher() {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(id); }, []);
-  useEffect(() => { if (!host) return; api.host(host).then(r => { setState(r.state); setGameSnapshot(r.snapshot); setQuestionSeconds((r.snapshot.questions[0]?.timeLimitMs ?? 10000) / 1000); }).catch(() => { localStorage.removeItem("ckadinti-host"); setHost(null); }); const socket = watchSession(host.code, setState); return () => { socket.disconnect(); }; }, [host?.code]);
-  useEffect(() => { if (host && state?.phase === "ended") api.hostResults(host).then(setLeaderboard).catch(() => undefined); }, [host?.code, state?.phase]);
+  useEffect(() => {
+    if (!host) {
+      const teacher = readTeacherIdentity("teacher");
+      if (!teacher?.token) return;
+      let active = true;
+      void api.teacherSession(teacher.token).then(({ session }) => {
+        if (!active || !session) return;
+        const restoredHost = { code: session.code, token: session.token };
+        localStorage.setItem("ckadinti-host", JSON.stringify(restoredHost));
+        setHost(restoredHost);
+        setState(session.state);
+      }).catch(cause => { if (active) setError((cause as Error).message); });
+      return () => { active = false; };
+    }
+    let active = true;
+    void (async () => {
+      try {
+        let restoredHost = host;
+        let hosted;
+        try {
+          hosted = await api.host(restoredHost);
+        } catch {
+          const teacher = readTeacherIdentity("teacher");
+          if (!teacher?.token) throw new Error("Sign in again to restore your classroom session.");
+          const resumed = await api.teacherSession(teacher.token);
+          if (!resumed.session) throw new Error("No saved classroom session is available to restore.");
+          restoredHost = { code: resumed.session.code, token: resumed.session.token };
+          hosted = await api.host(restoredHost);
+          localStorage.setItem("ckadinti-host", JSON.stringify(restoredHost));
+          if (active) setHost(restoredHost);
+        }
+        if (!active) return;
+        setState(hosted.state);
+        setGameSnapshot(hosted.snapshot);
+        setQuestionSeconds((hosted.snapshot.questions[0]?.timeLimitMs ?? 10000) / 1000);
+      } catch (cause) {
+        if (active) setError((cause as Error).message || "Could not restore the classroom session.");
+      }
+    })();
+    const socket = watchSession(host.code, setState);
+    return () => { active = false; socket.disconnect(); };
+  }, [host?.code]);
+  useEffect(() => {
+    if (tab !== "results") return;
+    const teacher = readTeacherIdentity("teacher");
+    if (!teacher?.token) { setSessionHistory([]); setLeaderboard(null); setSelectedHistoryCode(""); return; }
+    let active = true;
+    void api.teacherSessions(teacher.token).then(({ sessions }) => {
+      if (!active) return;
+      setSessionHistory(sessions);
+      setSelectedHistoryCode(current => sessions.some(session => session.code === current && session.phase === "ended") ? current : sessions.find(session => session.phase === "ended")?.code ?? "");
+    }).catch(cause => { if (active) setError((cause as Error).message); });
+    return () => { active = false; };
+  }, [tab, host?.code, state?.phase]);
+  useEffect(() => {
+    if (tab !== "results" || !selectedHistoryCode) { setLeaderboard(null); return; }
+    const teacher = readTeacherIdentity("teacher");
+    if (!teacher?.token) { setLeaderboard(null); return; }
+    let active = true;
+    void api.teacherSessionResults(teacher.token, selectedHistoryCode).then(results => { if (active) setLeaderboard(results); }).catch(cause => { if (active) { setLeaderboard(null); setError((cause as Error).message); } });
+    return () => { active = false; };
+  }, [tab, selectedHistoryCode]);
 
   function navigateTab(next: Tab) { setTab(next); setParams({ tab: next }); setMobileMenu(false); }
   async function createSession(snapshot: GameSnapshot) { setBusy(true); setError(""); try { const teacher = readTeacherIdentity("teacher"); if (!teacher?.token) throw new Error("Please sign in to create a game."); const timedSnapshot = { ...snapshot, questions: snapshot.questions.map(question => ({ ...question, timeLimitMs: questionSeconds * 1000 })) }; const created = await api.create(timedSnapshot, teacher.token); const next = { code: created.code, token: created.hostToken }; localStorage.setItem("ckadinti-host", JSON.stringify(next)); setGameSnapshot(timedSnapshot); setHost(next); setState(created.state); navigateTab("live"); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
@@ -49,7 +112,7 @@ export function Teacher() {
 
   {tab === "live" && <div className="live-content"><div className="page-heading live-heading"><div><span className="section-kicker">LIVE GAME CONTROL</span><h1>{gameSnapshot.title}</h1><p>Lead the mission. Students see only the public game view.</p></div><div className="live-heading-actions">{state && <Badge className="live-status"><span className="status-dot online" /> {state.phase.toUpperCase()}</Badge>}{host && <Link className="ui-button ui-button-outline" to={`/projector?code=${host.code}`} target="_blank"><Expand size={16} /> Open Projector</Link>}</div></div>{!host || !state ? <Card className="empty-live"><Gamepad2 size={36} /><h2>No live session yet</h2><p>Create a game to open the teacher controls.</p><Button onClick={() => navigateTab("create")}>Create Game <ArrowRight size={18} /></Button></Card> : <><div className="live-info-strip"><div><span>JOIN CODE</span><strong>{host.code}</strong><button aria-label="Copy code" onClick={() => navigator.clipboard.writeText(host.code)}><ClipboardCopy size={16} /></button></div><div><span>PLAYERS</span><strong>{count} / 24</strong></div><div><span>ANSWERS</span><strong>{state.answeredCount} / {count}</strong></div><div><span>ROUND</span><strong>{state.phase === "lobby" ? "Waiting" : `${(state.questionIndex ?? 0) + 1} / ${gameSnapshot.questions.length}`}</strong></div></div><div className="live-grid"><Card className="question-nav"><h2>Questions</h2>{gameSnapshot.questions.map((q, i) => <div className={`question-nav-row ${i === state.questionIndex && state.phase !== "lobby" ? "current" : ""}`} key={q.id}><span>{i + 1}</span><p>{q.prompt}</p>{i < (state.questionIndex ?? 0) && <CheckCircle2 size={15} />}</div>)}</Card><Card className="question-preview"><div className="section-title"><div><Badge>QUESTION {(state.questionIndex ?? 0) + 1} OF {gameSnapshot.questions.length}</Badge></div><Badge className="phase-badge">{state.phase}</Badge></div><img src="/images/password-quest.png" alt="Laptop with a glowing lock" /><h2>{state.phase === "lobby" ? "Ready when your class is." : gameSnapshot.questions[state.questionIndex ?? 0]?.prompt}</h2><p>{state.phase === "lobby" ? "Share the join code, then start the game when everyone is here." : `${state.answeredCount} of ${count} students answered`}</p><Progress value={state.phase === "lobby" ? 0 : state.answeredCount / Math.max(1, count) * 100} /><div className="control-bar">{state.phase === "lobby" && <Button onClick={() => void command({ type: "start" })} disabled={busy}><Play size={16} /> Start game</Button>}{state.phase === "question" && <><Button variant="outline" onClick={() => void command({ type: "pause" })}><Pause size={16} /> Pause</Button><Button onClick={() => void command({ type: "reveal" })}>Reveal answer <ArrowRight size={16} /></Button></>}{state.phase === "paused" && <Button onClick={() => void command({ type: "resume" })}><Play size={16} /> Resume</Button>}{state.phase === "reveal" && <Button onClick={() => void command({ type: "next" })}>Next question <ArrowRight size={16} /></Button>}{state.phase !== "ended" && <ConfirmDialog title="End this game?" description="Students will see their final results. This cannot be undone." confirm="End Game" onConfirm={() => void command({ type: "end" })} trigger={<Button variant="danger"><Square size={15} /> End Game</Button>} />}</div></Card><div className="live-right"><Card className="player-activity"><div className="section-title"><h2>Live players</h2><Badge>{count} / 24</Badge></div>{state.players.length ? state.players.map((p, i) => <div className="activity-row" key={p.id}><Emblem name={["Comet", "Prism", "Orbit", "Spark", "Shield"][i % 5]!} /><div><strong>{p.displayName}</strong><small>{p.connected ? "Connected" : "Reconnecting"}</small></div><Badge className="answer-state">{state.phase === "question" && state.answeredCount ? "Playing" : state.phase === "lobby" ? "Ready" : state.phase}</Badge><button className="kick-button" title={`Remove ${p.displayName}`} aria-label={`Remove ${p.displayName}`} onClick={() => void command({ type: "kick", playerId: p.id })}><X size={15} /></button></div>) : <p className="empty-list">No players yet. Share the code to invite your class.</p>}</Card><Card className="settings-card"><h2>Game settings</h2>{state.phase === "lobby" && <><label className="question-timer-setting">Seconds per question<input type="number" min={1} max={600} value={questionSeconds} onChange={e => setQuestionSeconds(Math.max(1, Math.min(600, Number(e.target.value) || 10)))} /></label><Button variant="outline" disabled={busy} onClick={() => void command({ type: "set-timer", timeLimitMs: questionSeconds * 1000 })}>Apply timer</Button></>}<Switch checked={!state.lobbyLocked} onCheckedChange={value => void command({ type: "lock-lobby", locked: !value })} label="Allow joins" /><Switch checked={showLeaderboard} onCheckedChange={setShowLeaderboard} label="Show leaderboard" /><Switch checked={sound} onCheckedChange={setSound} label="Play sound effects" /></Card></div></div></>}</div>}
 
-  {tab === "results" && <TeacherResults results={leaderboard} ended={state?.phase === "ended"} />}
+  {tab === "results" && <TeacherResults results={leaderboard} sessions={sessionHistory} selectedCode={selectedHistoryCode} onSelect={setSelectedHistoryCode} ended={sessionHistory.some(session => session.code === selectedHistoryCode && session.phase === "ended")} />}
 
   {tab === "analytics" && <div className="simple-page"><div className="page-heading"><div><span className="section-kicker">MISSION INSIGHTS</span><h1>Analytics</h1><p>Quick indicators from the current classroom session.</p></div></div><div className="analytics-grid"><Card><Users size={24} /><small>PARTICIPATION</small><strong>{count} students</strong><Progress value={count / 24 * 100} /></Card><Card><Activity size={24} /><small>ANSWER COUNT</small><strong>{state?.answeredCount ?? 0} responses</strong><Progress value={(state?.answeredCount ?? 0) / Math.max(1, count) * 100} /></Card><Card><Gamepad2 size={24} /><small>QUIZ PROGRESS</small><strong>{state ? (state.questionIndex ?? 0) + 1 : 0} / {gameSnapshot.questions.length}</strong><Progress value={((state?.questionIndex ?? -1) + 1) / gameSnapshot.questions.length * 100} /></Card></div></div>}
 
@@ -59,7 +122,7 @@ export function Teacher() {
 
 function Stat({ Icon, value, label }: { Icon: typeof Home; value: string; label: string }) { return <div className="stat"><span><Icon size={20} /></span><strong>{value}</strong><small>{label}</small></div>; }
 
-function TeacherResults({ results, ended }: { results: HostResults | null; ended: boolean }) {
+function TeacherResults({ results, sessions, selectedCode, onSelect, ended }: { results: HostResults | null; sessions: TeacherSessionSummary[]; selectedCode: string; onSelect: (code: string) => void; ended: boolean }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   function toggle(playerId: string) {
     setExpanded(current => {
@@ -68,7 +131,7 @@ function TeacherResults({ results, ended }: { results: HostResults | null; ended
       return next;
     });
   }
-  return <div className="simple-page"><div className="page-heading"><div><span className="section-kicker">CLASSROOM RESULTS</span><h1>Mission results</h1><p>{ended ? "Final scores from the completed game. Open a student to review their answers." : "Results appear when the game ends."}</p></div></div><Card className="teacher-results">{results?.leaderboard.length ? results.leaderboard.map((player, index) => {
+  return <div className="simple-page"><div className="page-heading"><div><span className="section-kicker">CLASSROOM RESULTS</span><h1>Mission results</h1><p>{ended ? "Final scores from the completed game. Open a student to review their answers." : "Choose a completed session to review its saved results."}</p></div><label className="history-picker">Session<select value={selectedCode} onChange={event => onSelect(event.target.value)}><option value="">Select a completed session</option>{sessions.map(session => <option key={session.code} value={session.code} disabled={session.phase !== "ended"}>{session.title} · {new Date(session.createdAt).toLocaleDateString()} · {session.phase === "ended" ? "Completed" : session.phase}</option>)}</select></label></div><Card className="teacher-results">{results?.leaderboard.length ? results.leaderboard.map((player, index) => {
     const isExpanded = expanded.has(player.id);
     const panelId = `student-answers-${player.id}`;
     const correctCount = player.answers.filter(answer => answer.correct).length;

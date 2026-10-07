@@ -1,74 +1,39 @@
 # Implementation status
 
-## Repository setup
+## Integrated Arron preview
 
-- [x] Empty GitHub repository cloned locally.
-- [x] Shared agent instructions added.
-- [x] Non-overlapping Arron/Edin task split added.
-- [x] Graphify and RTK references recorded.
-- [x] Monorepo scaffold.
-- [x] Shared contracts.
-- [x] Teacher content pipeline, review gate, and approved snapshot hosting.
-- [x] Edin classroom UI and Fastify/Socket.IO runtime selectively integrated on Arron for local preview.
-- [ ] Persist active sessions, answers, and results so runtime restarts do not lose games.
-- [ ] Replace runtime account-table startup DDL with reviewed/versioned PostgreSQL migrations; decide whether account flows belong in MVP.
-- [ ] Complete stable runtime analytics and teacher reports.
-- [ ] CI and packaging smoke test (GitHub Actions workflow configured; first remote run pending).
+- [x] Workspace, Electron teacher shell, secure main/preload boundary, and Windows desktop packaging.
+- [x] PostgreSQL/Drizzle migrations and teacher-owned lesson, quiz, question, evidence, and generation-job repositories.
+- [x] TXT, Markdown, text-based PDF, and DOCX ingestion with normalized evidence blocks and deduplication.
+- [x] OpenAI Responses API structured quiz generation with source-quote evidence and mandatory teacher review.
+- [x] Teacher review actions: edit, approve/reject, add, duplicate, delete, reorder, bulk approve, and per-question regenerate.
+- [x] Approved quiz export through the shared `GameSnapshot` contract, including teacher-reviewed explanations.
+- [x] Local session creation and native desktop host controls/reports.
+- [x] Edin's student/teacher/admin/projector browser UI and Fastify/Socket.IO runtime selectively integrated on Arron.
+- [x] Browser teacher **Create Game** flow wired to Arron's import → AI draft → review → approval → runtime host pipeline through a trusted loopback API.
+- [x] Tests for parsers, schemas, review transitions, PostgreSQL repositories, runtime REST/session behavior, and desktop-to-runtime host flow.
 
-## Arron progress
+## Remaining before main integration
 
-- [x] pnpm workspace and Electron Forge teacher shell scaffolded.
-- [x] Secure main/preload boundary with lesson file-picker IPC added.
-- [x] Shared Zod lesson, quiz, generation, and review contracts added.
-- [x] Drizzle PostgreSQL schema added for Arron-owned lesson/quiz/content tables.
-- [x] PostgreSQL client and Drizzle migration commands configured.
-- [x] Generate the initial PostgreSQL SQL migration.
-- [x] Apply migrations and run repository integration tests against an isolated PostgreSQL 16 cluster (October 6, 2026).
-- [x] Verify desktop dev launch and package build on Windows with repository-pinned pnpm 10.15.0.
-- [ ] Verify a clean install, PostgreSQL integration tests, and packaging through GitHub Actions.
-- [x] PostgreSQL lesson, quiz, question, and generation-job repository operations scaffolded.
-- [x] Import TXT, Markdown, PDF, and DOCX lessons with text normalization, evidence blocks, and content deduplication.
-- [x] Validated IPC for importing and listing persisted lessons; renderer no longer receives file paths.
-- [x] Added runtime-compatible `GameSnapshot` and `ApprovedQuestion` contracts for Edin's host.
-- [x] Approved quiz export validates review state and produces an Edin-compatible `GameSnapshot`, including the teacher-reviewed explanation for the reveal phase.
-- [x] Create local sessions from approved quizzes; host credentials remain in main-process memory and typed passwords are cleared after use. Loopback-only requests reject redirects.
-- [x] Add normalization/block unit tests and a `TEST_DATABASE_URL`-gated PostgreSQL repository integration test.
-- [x] Add parser fixtures and import-path tests for TXT, Markdown, text PDF, and DOCX extraction.
-- [x] Lessons listing/detail and generated quiz draft listing wired to PostgreSQL repositories.
-- [x] Existing integrated browser teacher's **Create Game** flow now uses the Arron content pipeline through an authenticated loopback API hosted in Electron main: import, AI draft, evidence-backed review/edit, question and quiz approval, and approved `GameSnapshot` hosting. The API validates teacher tokens through the runtime and does not expose OpenAI/database credentials to the browser.
-- [ ] With local PostgreSQL, runtime and OpenAI configuration, verify the browser teacher workflow end-to-end; unit/API tests and browser production build pass, but live provider generation has not been run.
-- [x] OpenAI Responses API generation service with strict structured output, source-quote evidence mapping, prompt/model tracking, and failed-job reporting.
-- [x] Lesson detail generates persisted drafts; quizzes remain in `needs-review` until the teacher explicitly approves them.
-- [x] Settings screen shows PostgreSQL/OpenAI readiness without exposing credentials.
-- [x] Desktop Games: lobby lock/unlock, timer, players/removal, start, pause/resume, reveal, next, and end controls; server state polling and error handling.
-- [x] Desktop Reports: final host scores and question-by-question answers for sessions created during the current desktop run.
-- [x] Actual Electron UI → PostgreSQL → runtime → guest answer → desktop results smoke check (October 6, 2026), including preload loading and cleanup.
-- [x] Import → generated draft → evidence → approval gate → runtime snapshot integration tested with real PostgreSQL and a mocked OpenAI response.
-- [x] Reordering preserves rejected/approved question decisions; PostgreSQL regression test passes.
-- [x] Correct desktop preload/root environment paths and local runtime development entry point.
-- [ ] Historical reports await Edin's versioned runtime persistence and stable analytics API.
-- [ ] Live OpenAI generation needs a private API key/model available to the account; no paid generation was performed.
-- [ ] Physical multi-device LAN/browser acceptance and deployment configuration.
-- [x] Teacher review workflow.
-  - [x] Review screen with source quotes and “view in lesson”, editable prompt/explanation/topic/difficulty/options, approve/reject, delete, reorder, and quiz-level approval gate.
-  - [x] Add a manual teacher question, duplicate a question with its options/evidence, and bulk-approve pending questions (rejected questions stay rejected).
-  - [x] Regenerate an individual question from lesson evidence, track the generation job, and return the replacement to pending review.
+- [x] Keep answer acknowledgements and player endpoints free of correctness, correct options, score, XP, and streak until reveal; add runtime and REST regression coverage.
+- [x] Remove reward/power-up endpoints and score changes; the agreed MVP scoring has no score changes from power-ups.
+- [x] Persist runtime snapshots, accepted answers, events, and results in PostgreSQL through the versioned runtime migration; restore games after restart. Unit/regression coverage uses a memory-store double.
+- [x] Replace runtime account startup DDL with reviewed/versioned migrations. Teacher/student account flows remain preview-only and outside the no-accounts MVP boundary.
+- [x] Add teacher-owned persisted session history and completed-session reports to the integrated browser UI/API. Broader historical analytics and desktop history remain incomplete.
+- [ ] Validate migrations and runtime persistence against a disposable PostgreSQL database (`TEST_DATABASE_URL`); the opt-in `test:postgres` check is implemented but could not run because the service is unavailable in this environment.
+- [ ] Verify clean install, Electron package, LAN/multi-device flow, and CI on the integrated branch.
+- [ ] Run browser teacher import/generation/approval flow with a locally configured database and private OpenAI key; live provider generation has not been performed here.
 
-## Edin integration preview on Arron
+## Security and behavior blockers
 
-- [x] Import `apps/student` and `packages/runtime-host` while retaining Arron's lesson, AI, review, and desktop contracts.
-- [x] Add Edin runtime schemas and scoring exports additively to `packages/contracts`.
-- [x] Add workspace commands for browser/runtime development and validation, plus local Docker Compose setup.
-- [x] Inspect Edin at `cfb7a82`; cherry-pick LAN UUID fix to Arron and adopt the compatible default timer contract without replacing the teacher explanation adapter.
-- [x] Local runtime smoke tests and actual Electron/PostgreSQL host flow verified. CI run still requires remote verification.
-- [ ] Persist live game state, answers, and results; currently these are memory-backed.
-- [ ] Review account registration/login scope against the MVP's no-accounts product boundary.
-- [ ] Design versioned migration ownership for runtime account/session data with Edin before main integration.
-- [ ] Edin: defer answer keys/scores until reveal (current answer feedback and player-results routes expose them early).
-- [ ] Edin: remove power-up score changes or coordinate an explicit MVP rule change; current rewards add/steal points.
+The Arron-integrated runtime now returns only the student's own submitted/selection state while a question is active. The answer acknowledgement contains no feedback; correctness, XP, and score are returned to that student only at reveal (or after the game ends). The mystery-reward route, state, UI, and score mutations have been removed. Regression tests cover these reveal boundaries. Runtime state and auth schemas now use versioned PostgreSQL migrations, and a restart test verifies rehydration and teacher-owned results against a memory-store double. Merge readiness is still blocked on PostgreSQL-backed migration/persistence checks, full CI, and classroom acceptance.
+
+Teacher/admin account flows are preview functionality, not part of the stated MVP. The runtime uses the new versioned schema; existing local databases must run migrations before startup. The runtime persists each game's authoritative snapshot and evolving state as one versioned JSONB aggregate, rather than normalized answer/event tables.
 
 ## Branch status
 
-- `main`: shared documentation and integration baseline.
-- `Arron`: teacher/content work.
-- `Edin`: runtime/student work.
+- `main`: shared documentation/tooling/integration baseline.
+- `Arron`: teacher/content pipeline plus a local integrated copy of Edin's runtime/student app. Integration work here does not modify the Edin branch.
+- `Edin`: runtime/student owner branch; its state is not changed by this Arron integration.
+
+See [TEAM_TASKS.md](TEAM_TASKS.md), [CROSS_BRANCH_ALIGNMENT.md](CROSS_BRANCH_ALIGNMENT.md), and [DEPENDENCIES.md](DEPENDENCIES.md) for ownership, contract boundaries, and dependency decisions.

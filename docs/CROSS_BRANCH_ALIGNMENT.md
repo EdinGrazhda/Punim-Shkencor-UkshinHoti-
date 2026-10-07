@@ -19,6 +19,12 @@ Verified locally: PostgreSQL migrations and review transactions, mocked AI gener
 
 All changes and pushes from this follow-up target Arron. No merge to main is implied by passing the local tests.
 
+## October 7, 2026 Arron integration follow-up
+
+The integrated copy on `Arron` now persists each runtime session's approved snapshot, players, token hashes, answers, idempotency state, score state, and event history in PostgreSQL JSONB. Migration `0001_runtime_persistence.sql` versions the runtime account and session tables; runtime startup no longer creates schema with ad hoc DDL. After restart, the host token is rotated and the authenticated teacher can recover the latest session. Teacher-owned session history and completed-session results are available through the existing browser teacher Results view. The session aggregate is intentionally a small MVP persistence boundary, not a normalized analytics warehouse.
+
+Verification on this machine: workspace typecheck and runtime unit/restart/ownership tests pass. An opt-in PostgreSQL migration/restart test is available, but the PostgreSQL repository tests were skipped because `TEST_DATABASE_URL` is not configured, and no local PostgreSQL or Docker runtime is available. Therefore, the migration and real PostgreSQL restart path remain unverified; Arron is not yet safe to merge into `main` until those checks plus full CI and LAN/multi-device acceptance pass. No changes were made to `Edin`.
+
 ## Shared runtime names
 
 Arron now exports the same runtime-facing names used by Edin's host and student code:

@@ -1,10 +1,42 @@
-import { randomInt, randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
-import { ApprovedQuestion, AnswerRequest, GameSnapshot, HostCommand, Player, PublicSessionState, ScoreBreakdown, calculateScore } from "@ckadinti/contracts";
+import { createHash, randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import { ApprovedQuestion, AnswerRequest, GameSnapshot, HostCommand, Player, PublicSessionState, ScoreBreakdown, SessionPhase, calculateScore } from "@ckadinti/contracts";
+import { z } from "zod";
 
 export type SessionEvent = { id: string; at: number; type: string; playerId?: string; payload?: unknown };
 export type AnswerResult = { accepted: boolean; duplicate?: boolean; reason?: string };
-type Reward = { deadlineAt: number; hackBox: number; selectedBox?: number; kind?: "points" | "hack"; points?: number; completed: boolean };
-type Answer = { playerId: string; questionIndex: number; optionIndex: number; submittedAt: number; score: ScoreBreakdown };
+type Answer = { playerId: string; questionIndex: number; optionIndex: number; submittedAt: number; idempotencyKey: string; score: ScoreBreakdown };
+
+const persistedSessionSchema = z.object({
+  version: z.literal(1),
+  code: z.string().length(6),
+  snapshot: GameSnapshot,
+  players: z.array(Player),
+  events: z.array(z.object({ id: z.string(), at: z.number(), type: z.string(), playerId: z.string().optional(), payload: z.unknown().optional() })),
+  answers: z.array(z.object({
+    playerId: z.string(),
+    questionIndex: z.number().int().nonnegative(),
+    optionIndex: z.number().int().nonnegative(),
+    submittedAt: z.number().nonnegative(),
+    idempotencyKey: z.string(),
+    score: z.object({ base: z.number(), speedBonus: z.number(), streakBonus: z.number(), total: z.number() }),
+  })),
+  scores: z.array(z.tuple([z.string(), z.number()])),
+  streaks: z.array(z.tuple([z.string(), z.number()])),
+  xp: z.array(z.tuple([z.string(), z.number()])),
+  playerTokenHashes: z.array(z.tuple([z.string(), z.string()])),
+  studentAccounts: z.array(z.tuple([z.string(), z.string()])),
+  currentIndex: z.number().int().nonnegative(),
+  deadlineAt: z.number().nonnegative(),
+  revealUntil: z.number().nonnegative(),
+  pausedRemaining: z.number().nonnegative(),
+  phase: SessionPhase,
+  lobbyLocked: z.boolean(),
+}).superRefine((state, context) => {
+  if (state.currentIndex >= state.snapshot.questions.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "currentIndex is outside the approved snapshot", path: ["currentIndex"] });
+  }
+});
+export type PersistedSession = z.infer<typeof persistedSessionSchema>;
 
 export class AuthoritativeSession {
   readonly snapshot: Readonly<GameSnapshot>;
@@ -15,9 +47,9 @@ export class AuthoritativeSession {
   private readonly scores = new Map<string, number>();
   private readonly streaks = new Map<string, number>();
   private readonly playerTokens = new Map<string, string>();
+  private readonly playerTokenHashes = new Map<string, string>();
   private readonly studentAccounts = new Map<string, string>();
   readonly hostToken = randomBytes(32).toString("hex");
-  private readonly rewards = new Map<string, Reward>();
   private readonly xp = new Map<string, number>();
   private revealUntil = 0;
   private pausedRemaining = 0;
@@ -26,9 +58,55 @@ export class AuthoritativeSession {
   private phase: PublicSessionState["phase"] = "lobby";
   private lobbyLocked = false;
 
-  constructor(readonly code: string, snapshot: GameSnapshot, private now = () => Date.now(), private pickBox = () => randomInt(3)) {
+  constructor(readonly code: string, snapshot: GameSnapshot, private now = () => Date.now(), restored?: PersistedSession) {
     this.snapshot = structuredClone(snapshot);
-    this.emit("session.created", { snapshotId: snapshot.id });
+    if (restored) this.restore(restored);
+    else this.emit("session.created", { snapshotId: snapshot.id });
+  }
+
+  static restore(input: unknown, now = () => Date.now()) {
+    const state = persistedSessionSchema.parse(input);
+    return new AuthoritativeSession(state.code, state.snapshot, now, state);
+  }
+
+  private restore(state: PersistedSession) {
+    for (const player of state.players) this.players.set(player.id, { ...player, connected: false });
+    this.events.push(...structuredClone(state.events));
+    this.answers.push(...structuredClone(state.answers));
+    for (const [key, value] of state.scores) this.scores.set(key, value);
+    for (const [key, value] of state.streaks) this.streaks.set(key, value);
+    for (const [key, value] of state.xp) this.xp.set(key, value);
+    for (const [key, value] of state.playerTokenHashes) this.playerTokenHashes.set(key, value);
+    for (const [key, value] of state.studentAccounts) this.studentAccounts.set(key, value);
+    for (const answer of state.answers) this.idempotency.set(`${answer.playerId}:${answer.idempotencyKey}`, { accepted: true });
+    this.currentIndex = state.currentIndex;
+    this.deadlineAt = state.deadlineAt;
+    this.revealUntil = state.revealUntil;
+    this.pausedRemaining = state.pausedRemaining;
+    this.phase = state.phase;
+    this.lobbyLocked = state.lobbyLocked;
+  }
+
+  toPersistence(): PersistedSession {
+    return {
+      version: 1,
+      code: this.code,
+      snapshot: structuredClone(this.snapshot),
+      players: [...this.players.values()].map(player => ({ ...player, connected: false })),
+      events: structuredClone(this.events),
+      answers: structuredClone(this.answers),
+      scores: [...this.scores],
+      streaks: [...this.streaks],
+      xp: [...this.xp],
+      playerTokenHashes: [...this.playerTokenHashes],
+      studentAccounts: [...this.studentAccounts],
+      currentIndex: this.currentIndex,
+      deadlineAt: this.deadlineAt,
+      revealUntil: this.revealUntil,
+      pausedRemaining: this.pausedRemaining,
+      phase: this.phase,
+      lobbyLocked: this.lobbyLocked,
+    };
   }
 
   join(displayName: string, playerId: string = randomUUID(), emblem?: string): Player {
@@ -37,7 +115,7 @@ export class AuthoritativeSession {
     this.players.set(player.id, player);
     this.scores.set(player.id, 0);
     this.streaks.set(player.id, 0);
-    this.playerTokens.set(player.id, randomBytes(32).toString("hex"));
+    this.issuePlayerToken(player.id);
     this.emit("player.joined", { playerId: player.id });
     return player;
   }
@@ -52,10 +130,17 @@ export class AuthoritativeSession {
   }
 
   tokenFor(playerId: string) { return this.playerTokens.get(playerId); }
+  issuePlayerToken(playerId: string) {
+    if (!this.players.has(playerId)) throw new Error("player_not_found");
+    const token = randomBytes(32).toString("hex");
+    this.playerTokens.set(playerId, token);
+    this.playerTokenHashes.set(playerId, tokenDigest(token));
+    return token;
+  }
   linkStudentAccount(playerId: string, accountId: string) { if (!this.players.has(playerId)) throw new Error("player_not_found"); this.studentAccounts.set(playerId, accountId); }
   playerIdForStudent(accountId: string) { return [...this.studentAccounts].find(([, id]) => id === accountId)?.[0]; }
   studentAccountFor(playerId: string) { return this.studentAccounts.get(playerId); }
-  verifyPlayer(playerId: string, token: string | undefined) { return secureEqual(this.playerTokens.get(playerId), token); }
+  verifyPlayer(playerId: string, token: string | undefined) { return secureEqual(this.playerTokenHashes.get(playerId), token ? tokenDigest(token) : undefined); }
   verifyHost(token: string | undefined) { return secureEqual(this.hostToken, token); }
 
   disconnect(playerId: string) {
@@ -70,7 +155,7 @@ export class AuthoritativeSession {
     if (command.type === "resume") { if (this.phase !== "paused") throw new Error("invalid_phase"); this.phase = "question"; this.deadlineAt = this.now() + this.pausedRemaining; this.emit("session.resumed"); }
     if (command.type === "end") { this.phase = "ended"; this.emit("session.ended"); }
     if (command.type === "lock-lobby") { this.lobbyLocked = command.locked; this.emit("lobby.locked", { locked: command.locked }); }
-    if (command.type === "kick") { this.players.delete(command.playerId); this.playerTokens.delete(command.playerId); this.studentAccounts.delete(command.playerId); this.emit("player.kicked", { playerId: command.playerId }); }
+    if (command.type === "kick") { this.players.delete(command.playerId); this.playerTokens.delete(command.playerId); this.playerTokenHashes.delete(command.playerId); this.studentAccounts.delete(command.playerId); this.emit("player.kicked", { playerId: command.playerId }); }
     if (command.type === "reveal") { if (this.phase !== "question") throw new Error("invalid_phase"); this.revealQuestion(); }
     if (command.type === "next") this.nextQuestion();
   }
@@ -89,51 +174,19 @@ export class AuthoritativeSession {
     const previousStreak = this.streaks.get(playerId) ?? 0;
     const correct = request.optionIndex === question.correctOption;
     const score = calculateScore(correct, this.now() - (this.deadlineAt - question.timeLimitMs), question.timeLimitMs, correct ? previousStreak + 1 : 0);
-    const answer = { playerId, questionIndex: this.currentIndex, optionIndex: request.optionIndex, submittedAt: this.now(), score };
+    const answer = { playerId, questionIndex: this.currentIndex, optionIndex: request.optionIndex, submittedAt: this.now(), idempotencyKey: request.idempotencyKey, score };
     this.answers.push(answer); this.scores.set(playerId, (this.scores.get(playerId) ?? 0) + score.total); this.streaks.set(playerId, correct ? previousStreak + 1 : 0);
     this.xp.set(playerId, (this.xp.get(playerId) ?? 0) + (correct ? 100 : 10));
-    if (correct) this.rewards.set(playerId, { deadlineAt: this.now() + 15000, hackBox: this.pickBox(), completed: false });
     const result = { accepted: true }; this.idempotency.set(idempotencyKey, result); this.emit("answer.accepted", { playerId, questionIndex: this.currentIndex }); return result;
-  }
-
-  chooseReward(playerId: string, questionIndex: number, boxIndex?: number, targetId?: string) {
-    if (questionIndex !== this.currentIndex) throw new Error("stale_question");
-    if (this.phase !== "question") throw new Error("invalid_phase");
-    const reward = this.rewards.get(playerId);
-    if (!reward) throw new Error("reward_unavailable");
-    if (reward.completed) return this.playerResult(playerId);
-    if (this.now() >= reward.deadlineAt) throw new Error("deadline_passed");
-    if (reward.selectedBox === undefined) {
-      if (!Number.isInteger(boxIndex) || boxIndex! < 0 || boxIndex! > 2) throw new Error("invalid_box");
-      reward.selectedBox = boxIndex;
-      reward.kind = boxIndex === reward.hackBox ? "hack" : "points";
-      if (reward.kind === "points") {
-        reward.points = 200;
-        this.scores.set(playerId, this.score(playerId) + reward.points);
-        reward.completed = true;
-      }
-    }
-    if (reward.kind === "hack" && targetId !== undefined) {
-      if (targetId === playerId || !this.players.has(targetId)) throw new Error("invalid_target");
-      const stolen = Math.floor(this.score(targetId) * 0.1);
-      this.scores.set(targetId, this.score(targetId) - stolen);
-      this.scores.set(playerId, this.score(playerId) + stolen);
-      reward.points = stolen;
-      reward.completed = true;
-    }
-    if (reward.kind === "hack" && this.players.size < 2) reward.completed = true;
-    this.emit("reward.updated", { playerId });
-    return this.playerResult(playerId);
   }
 
   tick(at = this.now()) {
     if (this.phase === "question") {
       const complete = this.players.size > 0 && [...this.players.keys()].every(id => {
         const answer = this.answers.find(a => a.playerId === id && a.questionIndex === this.currentIndex);
-        return answer && at >= answer.submittedAt + 1500 && (!answer.score.base || this.rewards.get(id)?.completed);
+        return answer && at >= answer.submittedAt + 1500;
       });
-      const pendingReward = [...this.rewards].some(([id, reward]) => this.players.has(id) && !reward.completed && at < reward.deadlineAt);
-      if ((at >= this.deadlineAt && !pendingReward) || complete) this.revealQuestion();
+      if (at >= this.deadlineAt || complete) this.revealQuestion();
     } else if (this.phase === "reveal" && at >= this.revealUntil) this.nextQuestion();
   }
 
@@ -144,15 +197,19 @@ export class AuthoritativeSession {
   score(playerId: string) { return this.scores.get(playerId) ?? 0; }
   playerResult(playerId: string) {
     const answer = this.answers.find(a => a.playerId === playerId && a.questionIndex === this.currentIndex);
-    const reward = this.rewards.get(playerId);
+    if (this.phase !== "reveal" && this.phase !== "ended") {
+      return {
+        questionIndex: this.currentIndex,
+        answered: Boolean(answer),
+        selectedOption: answer?.optionIndex,
+      };
+    }
     return { questionIndex: this.currentIndex, score: this.score(playerId), xp: this.xp.get(playerId) ?? 0,
       questionXp: answer ? (answer.score.base ? 100 : 10) : 0,
-      questionScore: (answer?.score.total ?? 0) + (reward?.points ?? 0), correct: Boolean(answer?.score.base),
+      questionScore: answer?.score.total ?? 0, correct: Boolean(answer?.score.base),
       answered: Boolean(answer), selectedOption: answer?.optionIndex,
       correctOption: answer ? this.snapshot.questions[this.currentIndex]!.correctOption : undefined,
-      streak: this.streaks.get(playerId) ?? 0,
-      reward: reward ? { deadlineAt: reward.deadlineAt, selectedBox: reward.selectedBox, kind: reward.kind, points: reward.points, completed: reward.completed } : undefined,
-      targets: reward?.kind === "hack" ? this.leaderboard().filter(p => p.id !== playerId) : undefined };
+      streak: this.streaks.get(playerId) ?? 0 };
   }
   answerBreakdown(playerId: string) {
     if (!this.players.has(playerId)) throw new Error("player_not_found");
@@ -172,8 +229,9 @@ export class AuthoritativeSession {
     });
   }
   leaderboard() { return [...this.players.values()].map(p => ({ id: p.id, displayName: p.displayName, score: this.score(p.id) })).sort((a,b) => b.score - a.score); }
-  private openQuestion() { this.phase = "question"; this.rewards.clear(); this.deadlineAt = this.now() + this.snapshot.questions[this.currentIndex]!.timeLimitMs; this.emit("question.opened", { questionIndex: this.currentIndex, deadlineAt: this.deadlineAt }); }
+  private openQuestion() { this.phase = "question"; this.deadlineAt = this.now() + this.snapshot.questions[this.currentIndex]!.timeLimitMs; this.emit("question.opened", { questionIndex: this.currentIndex, deadlineAt: this.deadlineAt }); }
   private emit(type: string, payload?: unknown) { this.events.push({ id: randomUUID(), at: this.now(), type, payload }); }
 }
 
 function secureEqual(expected: string | undefined, received: string | undefined) { if (!expected || !received || expected.length !== received.length) return false; return timingSafeEqual(Buffer.from(expected), Buffer.from(received)); }
+function tokenDigest(token: string) { return createHash("sha256").update(token).digest("hex"); }
