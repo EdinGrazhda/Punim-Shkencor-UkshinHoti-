@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, Gamepad2, LayoutDashboard, LogOut, RefreshCw, Trophy } from "lucide-react";
 import { api, type PlayerIdentity, type StudentAccountIdentity, type StudentLeaderboard } from "./api";
 import { Brand } from "./Student";
@@ -70,6 +70,7 @@ export function StudentPanel() {
       const joined = await api.join(session.code, displayName, "Comet", account?.token);
       const player: PlayerIdentity = { code: session.code, id: joined.player.id, token: joined.playerToken, name: displayName, emblem: "Comet" };
       sessionStorage.setItem("ckadinti-student-name", displayName);
+      sessionStorage.removeItem("ckadinti-join-as-guest");
       localStorage.setItem("ckadinti-player", JSON.stringify(player));
       navigate(`/play?code=${encodeURIComponent(session.code)}`);
     } catch (cause) {
@@ -91,6 +92,7 @@ export function StudentPanel() {
   }
 
   if (checking) return <div className="auth-loading">Opening your student panel…</div>;
+  if (!account) return <Navigate to="/join" replace />;
   return <div className="student-workspace">
     <aside className="student-sidebar">
       <Link className="student-sidebar-brand" to="/"><Brand /></Link>

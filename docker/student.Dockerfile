@@ -10,7 +10,7 @@ RUN pnpm install --frozen-lockfile
 
 COPY apps/student apps/student
 COPY packages/contracts packages/contracts
-RUN pnpm exec vite build --config apps/student/vite.config.ts
+RUN pnpm --filter @ckadinti/contracts build && pnpm --filter @ckadinti/student build
 
 FROM nginx:1.27-alpine
 COPY docker/nginx.student.conf /etc/nginx/conf.d/default.conf

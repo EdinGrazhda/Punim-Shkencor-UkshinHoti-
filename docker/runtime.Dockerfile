@@ -9,9 +9,8 @@ COPY packages/runtime-host/package.json packages/runtime-host/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY packages packages
-# The runtime image does not include the student source tree, so do not invoke
-# the root project references (which also include apps/student).
-RUN pnpm exec tsc -b packages/contracts packages/runtime-host --force --pretty false
+# Build from each workspace package so pnpm resolves its local TypeScript binary.
+RUN pnpm --filter @ckadinti/contracts build && pnpm --filter @ckadinti/runtime-host build
 
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app

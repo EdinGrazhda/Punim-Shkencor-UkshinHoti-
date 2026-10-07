@@ -78,7 +78,7 @@ export function Student() {
     let studentToken: string | undefined;
     try {
       const account = JSON.parse(localStorage.getItem("ckadinti-student-account") ?? "null") as { token?: string; student?: { id: string } } | null;
-      if (account?.token) {
+      if (account?.token && sessionStorage.getItem("ckadinti-join-as-guest") !== "1") {
         const verified = await api.studentMe(account.token);
         if (verified.student.id === account.student?.id) studentToken = account.token;
         else localStorage.removeItem("ckadinti-student-account");
