@@ -18,7 +18,9 @@ For local development, install dependencies with `corepack pnpm install`, copy `
 
 ### Agent automation
 
-`AGENTS.md` requires Codex terminal commands to use RTK wrappers (or `rtk proxy` for unsupported commands). This is an agent instruction, not a shell-wide rewrite of commands you type yourself. The enabled `ckadinti-graphify.service` watches this checkout for saved file changes and refreshes the code graph/report automatically. Check it with `systemctl --user status ckadinti-graphify.service`; its logs are available through `journalctl --user -u ckadinti-graphify.service`. Semantic extraction of changed docs/images also runs automatically when an LLM API key is available to the service through `~/.config/ckadinti/graphify.env`; otherwise `graphify-out/needs_update` records that it is pending.
+`AGENTS.md` tells Codex to query Graphify before broad code searches and to use the RTK command policy in `RTK.md`. Graphify commands run natively; RTK wraps ordinary repository commands to reduce noisy output. These are agent instructions, not a shell-wide rewrite of commands you type yourself.
+
+Install the Codex skill with `graphify install --platform codex`. Install Graphify's watcher dependency with `pipx inject graphifyy watchdog` (and its optional SQL parser with `pipx inject graphifyy tree-sitter-sql`), then run `scripts/install-graphify-watch.sh`. The user service runs `graphify update .` after saved repository changes and once at startup, so edits made while it was stopped are caught up. Check it with `systemctl --user status ckadinti-graphify.service`; logs are available through `journalctl --user -u ckadinti-graphify.service`. You can also run `graphify update .` manually. This command refreshes the code graph without an API key; document and image semantics still need a separate LLM-backed Graphify update.
 
 [![CI](https://github.com/safishamsi/graphify/actions/workflows/ci.yml/badge.svg?branch=v1)](https://github.com/safishamsi/graphify/actions/workflows/ci.yml)
 
