@@ -21,7 +21,8 @@
 - [x] Replace runtime account startup DDL with reviewed/versioned migrations. Teacher/student account flows remain preview-only and outside the no-accounts MVP boundary.
 - [x] Add teacher-owned persisted session history and completed-session reports to the integrated browser UI/API. Broader historical analytics and desktop history remain incomplete.
 - [ ] Validate migrations and runtime persistence against a disposable PostgreSQL database (`TEST_DATABASE_URL`); the opt-in `test:postgres` check is implemented but could not run because the service is unavailable in this environment.
-- [ ] Verify clean install, Electron package, LAN/multi-device flow, and CI on the integrated branch.
+- [x] Run local workspace typecheck, runnable unit/smoke tests, Vite production build, and Electron packaging.
+- [ ] Verify a clean dependency install, PostgreSQL-backed tests, LAN/multi-device play, and CI on the integrated branch.
 - [ ] Run browser teacher import/generation/approval flow with a locally configured database and private OpenAI key; live provider generation has not been performed here.
 
 ## Security and behavior blockers
