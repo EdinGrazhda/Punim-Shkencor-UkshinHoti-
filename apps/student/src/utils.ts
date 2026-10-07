@@ -4,14 +4,12 @@ export const formatTime = (ms: number) => `0:${String(Math.ceil(Math.max(0, ms) 
 
 export function createUuid(): string {
   const browserCrypto = globalThis.crypto;
-  if (typeof browserCrypto?.randomUUID === "function") return browserCrypto.randomUUID();
-
   const bytes = new Uint8Array(16);
   if (typeof browserCrypto?.getRandomValues === "function") browserCrypto.getRandomValues(bytes);
   else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
 
-  // RFC 4122 version 4 UUID. randomUUID() is restricted to secure contexts in
-  // some browsers, while LAN student pages are commonly served over HTTP.
+  // RFC 4122 version 4 UUID. LAN student pages commonly use HTTP, where
+  // randomUUID() may be unavailable even when getRandomValues() works.
   bytes[6] = (bytes[6]! & 0x0f) | 0x40;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
   const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0"));
