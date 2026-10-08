@@ -10,7 +10,7 @@ The teacher desktop app uses Electron, React, and TypeScript. It imports TXT, Ma
 
 The Arron branch now includes a local integrated copy of Edin's student/teacher/admin/projector browser UI and Fastify/Socket.IO runtime. The integrated browser teacher workspace also uses Arron's lesson import, AI draft, teacher review, and approved-snapshot flow to create a game. Runtime sessions, accepted answers, events, and score state are stored in PostgreSQL and restored after a host restart. The teacher can recover the latest host session and view completed-session history and reports. The separate desktop host view still reports sessions created during its current run.
 
-This is still an integration preview, not yet merge-ready for `main`: the runtime persistence and migration changes have unit/restart coverage, but have not been exercised against a real PostgreSQL test database in this environment. Full CI and classroom acceptance checks are also pending. The Arron integration closes the early-answer feedback and score-changing reward gaps: correctness and scores are withheld until reveal, and rewards have been removed. See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) and [docs/CROSS_BRANCH_ALIGNMENT.md](docs/CROSS_BRANCH_ALIGNMENT.md).
+This is still an integration preview, not yet merge-ready for `main`: the runtime persistence and migration changes have unit/restart coverage, but have not been exercised against a disposable PostgreSQL test database in this environment. Full CI and classroom acceptance checks are also pending. Correctness and scores stay hidden until reveal. See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) and [docs/CROSS_BRANCH_ALIGNMENT.md](docs/CROSS_BRANCH_ALIGNMENT.md).
 
 ## Local development
 
@@ -65,6 +65,12 @@ For LAN students, set `STUDENT_ORIGIN=http://<teacher-LAN-IP>:4173` in the ignor
 For a Docker preview, run `docker compose up -d --build` after creating `.env`. Open [the browser app](http://localhost:4173) and [runtime health](http://localhost:4310/health). Compose starts PostgreSQL, the game runtime, the browser app, and a trusted `teacher-content` service that reuses the desktop import/generation/review pipeline. Electron does not need to be running for this setup. Teacher login is required for content requests; provider keys stay in the server container. To create a preview administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.test "Preview Admin"` and save the one-time password printed in that terminal. Accounts are preview-only; do not use real student data.
 
 In **Create Game**, choose **Upload file** for PDF/TXT/Markdown/DOCX, or **Paste text** to enter a lesson and optional title. Click **Add text to library**, choose the question count, and click **Generate quiz draft**. Both sources use the same saved lesson library, source evidence, and mandatory teacher review. PDF uploads support up to 50 MB through the browser proxy; English OCR is bundled in the content container. To use other OCR languages in Docker, mount the local language-pack folder and set `PDF_OCR_DATA_PATH` inside that service.
+
+### Classroom round rules
+
+Questions default to **10 seconds**. The teacher can change the time before hosting or apply a new time in the lobby. The server closes answers at the deadline, shows feedback, and moves to the next question automatically. A wrong submitted answer shows the student's choice in red, the correct choice in green, and awards exactly **10 XP**.
+
+After a correct answer is revealed, the student chooses one of three shuffled mystery boxes: **+150 points**, **+300 points**, or **Hack**. A fixed box position gives Hack one chance in three per pick. Hack lets the student choose another player and transfers **15% of that player's current points**. The choice window lasts at most eight seconds and closes sooner after every eligible student finishes. If no other player joined, the Hack box grants +150 points. The server owns every outcome and persists it across restarts.
 
 ## Checks
 

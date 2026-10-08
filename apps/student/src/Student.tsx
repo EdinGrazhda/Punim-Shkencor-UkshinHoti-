@@ -251,6 +251,22 @@ export function Student() {
       setBusy(false);
     }
   }
+  async function pickBox(boxIndex: number) {
+    if (!identity || !feedback?.correct || !feedback.bonus?.available || busy) return;
+    setBusy(true);
+    setError("");
+    try { setResult(await api.pickBonus(identity, boxIndex)); }
+    catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+  async function useHack(targetId: string) {
+    if (!identity || feedback?.bonus?.kind !== "hack" || feedback.bonus.targetId || busy) return;
+    setBusy(true);
+    setError("");
+    try { setResult(await api.hack(identity, targetId)); }
+    catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
   function leave() {
     localStorage.removeItem("ckadinti-player");
     setIdentity(null);
@@ -533,14 +549,16 @@ export function Student() {
             className="feedback-shell"
           >
             <div className="feedback-icon">
-              <Check size={44} />
+              {feedback?.correct ? <Check size={44} /> : <LockKeyhole size={44} />}
             </div>
             <Badge className="light-badge">
               QUESTION {(state?.questionIndex ?? 0) + 1} REVEAL
             </Badge>
-            <h1>{result?.correct ? "Excellent work!" : "Keep exploring!"}</h1>
+            <h1>{!feedback ? "Checking your answer…" : feedback.correct ? "Excellent work!" : "Keep exploring!"}</h1>
             <p>
-              {result?.correct
+              {!feedback
+                ? "Your result is on its way."
+                : feedback.correct
                 ? "You found the strongest answer."
                 : "Every mission is a chance to learn."}
             </p>
@@ -553,15 +571,27 @@ export function Student() {
                 <Flame size={18} /> {result?.streak ?? 0} streak
               </span>
             </div>
+            {feedback?.answered && !feedback.correct && <div className="answer-review" aria-label="Answer review">
+              <div className="answer-review-wrong"><span>Your answer</span><strong>{state?.question?.options[feedback.selectedOption ?? -1]}</strong></div>
+              <div className="answer-review-right"><span>Correct answer</span><strong>{state?.question?.options[feedback.correctOption ?? -1]}</strong></div>
+            </div>}
+            {feedback?.correct && <Card className="mystery-card">
+              {feedback.bonus?.available ? <>
+                <h2>Choose a mystery box</h2>
+                <p>Two boxes add points. One unlocks a Hack. Pick one.</p>
+                <div className="mystery-boxes">{[0, 1, 2].map(boxIndex => <button key={boxIndex} type="button" disabled={busy} onClick={() => void pickBox(boxIndex)} aria-label={`Open mystery box ${boxIndex + 1}`}><span aria-hidden="true">?</span> Box {boxIndex + 1}</button>)}</div>
+              </> : feedback.bonus?.kind === "hack" && !feedback.bonus.targetId ? <>
+                <h2>Hack unlocked</h2><p>Choose another student to take 15% of their current points.</p>
+                <div className="hack-targets">{feedback.bonus.targets?.map(target => <button key={target.id} type="button" disabled={busy} onClick={() => void useHack(target.id)}>{target.displayName}</button>)}</div>
+              </> : feedback.bonus?.kind === "hack" ? <><h2>Hack complete</h2><p>You took {feedback.bonus.stolen ?? 0} points.</p></>
+                : feedback.bonus?.kind === "points" ? <><h2>Box opened</h2><p>{feedback.bonus.soloFallback ? "No other students are in this game, so you get" : "You earned"} +{feedback.bonus.points ?? 0} points.</p></>
+                  : <p>Waiting for your mystery boxes…</p>}
+            </Card>}
+            {error && <p className="form-error" role="alert">{error}</p>}
             <Card className="explanation-card">
               <small>THE RIGHT ANSWER</small>
-              <strong>
-                {state?.question?.options[state?.reveal?.correctOption ?? 0]}
-              </strong>
-              <p>
-                {state?.reveal?.explanation ??
-                  "The teacher will explain this answer."}
-              </p>
+              <strong>{state?.question?.options[state?.reveal?.correctOption ?? 0]}</strong>
+              <p>{state?.reveal?.explanation ?? "The teacher will explain this answer."}</p>
             </Card>
             <Card className="mission-card">
               <div>

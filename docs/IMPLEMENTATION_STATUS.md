@@ -1,5 +1,12 @@
 # Implementation status
 
+## Edin classroom round update — 2026-10-08
+
+- [x] Correct answers unlock three secret shuffled boxes after reveal: +150 points, +300 points, and Hack. A chosen box has a one-third Hack chance. Hack transfers 15% of another student's current score; only one pick and one transfer can apply per student per question. Solo players get +150 points from a Hack box.
+- [x] Wrong submitted answers award exactly 10 XP, with the student's choice shown red and the correct choice green at reveal. Answer results, box state, and scores remain private until reveal.
+- [x] Approved snapshots default to 10 seconds per question; teacher settings still override this. The host advances after the deadline and a short feedback/bonus window. Bonus selections and score adjustments survive runtime restart and remain compatible with older saved sessions.
+- Runtime unit/REST tests and workspace type checking passed. The student production build passed with the existing chunk-size warning. Browser visual verification and a real classroom device check remain pending because the local sandbox cannot start a preview listener.
+
 ## Edin browser lesson integration — 2026-10-08
 
 - LAN join links and QR codes now use the runtime's configured `STUDENT_ORIGIN`, including restored sessions opened by a teacher at localhost. The local `.env` points at this machine's current Wi-Fi address, `192.168.1.101`. Docker service recreation and a second-device check remain pending because automatic approval review could not complete the required Docker command at the session usage limit.
@@ -42,7 +49,7 @@
 ### Integration checklist
 
 - [x] Keep answer acknowledgements and player endpoints free of correctness, correct options, score, XP, and streak until reveal; add runtime and REST regression coverage.
-- [x] Remove reward/power-up endpoints and score changes; the agreed MVP scoring has no score changes from power-ups.
+- [x] Restore the explicitly requested mystery-box reward flow behind authenticated, server-authoritative endpoints while keeping answer privacy and single-use rewards.
 - [x] Persist runtime snapshots, accepted answers, events, and results in PostgreSQL through the versioned runtime migration; restore games after restart. Unit/regression coverage uses a memory-store double.
 - [x] Replace runtime account startup DDL with reviewed/versioned migrations. Teacher/student account flows remain preview-only and outside the no-accounts MVP boundary.
 - [x] Add teacher-owned persisted session history and completed-session reports to the integrated browser UI/API. Broader historical analytics and desktop history remain incomplete.
@@ -53,7 +60,7 @@
 
 ## Security and behavior blockers
 
-The Arron-integrated runtime now returns only the student's own submitted/selection state while a question is active. The answer acknowledgement contains no feedback; correctness, XP, and score are returned to that student only at reveal (or after the game ends). The mystery-reward route, state, UI, and score mutations have been removed. Regression tests cover these reveal boundaries. Runtime state and auth schemas now use versioned PostgreSQL migrations, and a restart test verifies rehydration and teacher-owned results against a memory-store double. Merge readiness is still blocked on PostgreSQL-backed migration/persistence checks, full CI, and classroom acceptance.
+The runtime returns only the student's own submitted/selection state while a question is active. Answer acknowledgements contain no feedback; correctness, XP, scores, and mystery-box choices are available only at reveal (or after the game ends). Authenticated bonus endpoints enforce one pick and one Hack transfer; regression tests cover these boundaries. Runtime state and auth schemas use versioned PostgreSQL migrations, and restart tests verify rehydration and teacher-owned results against a memory-store double. Merge readiness is still blocked on PostgreSQL-backed migration/persistence checks, full CI, and classroom acceptance.
 
 Teacher/admin account flows are preview functionality, not part of the stated MVP. The runtime uses the new versioned schema; existing local databases must run migrations before startup. The runtime persists each game's authoritative snapshot and evolving state as one versioned JSONB aggregate, rather than normalized answer/event tables.
 

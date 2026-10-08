@@ -1,10 +1,28 @@
-import { createHash, randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { ApprovedQuestion, AnswerRequest, GameSnapshot, HostCommand, Player, PublicSessionState, ScoreBreakdown, SessionPhase, calculateScore } from "@ckadinti/contracts";
 import { z } from "zod";
 
 export type SessionEvent = { id: string; at: number; type: string; playerId?: string; payload?: unknown };
 export type AnswerResult = { accepted: boolean; duplicate?: boolean; reason?: string };
 type Answer = { playerId: string; questionIndex: number; optionIndex: number; submittedAt: number; idempotencyKey: string; score: ScoreBreakdown };
+type BonusOffer = 150 | 300 | "hack";
+type BonusSelection = { boxIndex: number; kind: "points" | "hack"; points: number; targetId?: string; stolen?: number; soloFallback?: boolean };
+type PlayerResult = {
+  questionIndex: number;
+  answered: boolean;
+  selectedOption?: number;
+  correctOption?: number;
+  correct?: boolean;
+  score?: number;
+  xp?: number;
+  questionXp?: number;
+  questionScore?: number;
+  streak?: number;
+  bonus?: Partial<BonusSelection> & { available: boolean; targets?: { id: string; displayName: string }[] };
+};
+const REVEAL_WINDOW_MS = 8_000;
+const MIN_FEEDBACK_MS = 2_500;
+const HACK_PERCENT = 15;
 
 const persistedSessionSchema = z.object({
   version: z.literal(1),
@@ -23,6 +41,9 @@ const persistedSessionSchema = z.object({
   scores: z.array(z.tuple([z.string(), z.number()])),
   streaks: z.array(z.tuple([z.string(), z.number()])),
   xp: z.array(z.tuple([z.string(), z.number()])),
+  bonusOffers: z.array(z.tuple([z.string(), z.tuple([z.union([z.literal(150), z.literal(300), z.literal("hack")]), z.union([z.literal(150), z.literal(300), z.literal("hack")]), z.union([z.literal(150), z.literal(300), z.literal("hack")])])])).default([]),
+  bonusSelections: z.array(z.tuple([z.string(), z.object({ boxIndex: z.number().int().min(0).max(2), kind: z.enum(["points", "hack"]), points: z.number().int().nonnegative(), targetId: z.string().optional(), stolen: z.number().int().nonnegative().optional(), soloFallback: z.boolean().optional() })])).default([]),
+  scoreAdjustments: z.array(z.tuple([z.string(), z.number().int()])).default([]),
   playerTokenHashes: z.array(z.tuple([z.string(), z.string()])),
   studentAccounts: z.array(z.tuple([z.string(), z.string()])),
   currentIndex: z.number().int().nonnegative(),
@@ -51,6 +72,9 @@ export class AuthoritativeSession {
   private readonly studentAccounts = new Map<string, string>();
   readonly hostToken = randomBytes(32).toString("hex");
   private readonly xp = new Map<string, number>();
+  private readonly bonusOffers = new Map<string, [BonusOffer, BonusOffer, BonusOffer]>();
+  private readonly bonusSelections = new Map<string, BonusSelection>();
+  private readonly scoreAdjustments = new Map<string, number>();
   private revealUntil = 0;
   private pausedRemaining = 0;
   private currentIndex = 0;
@@ -76,6 +100,9 @@ export class AuthoritativeSession {
     for (const [key, value] of state.scores) this.scores.set(key, value);
     for (const [key, value] of state.streaks) this.streaks.set(key, value);
     for (const [key, value] of state.xp) this.xp.set(key, value);
+    for (const [key, value] of state.bonusOffers) this.bonusOffers.set(key, value);
+    for (const [key, value] of state.bonusSelections) this.bonusSelections.set(key, value);
+    for (const [key, value] of state.scoreAdjustments) this.scoreAdjustments.set(key, value);
     for (const [key, value] of state.playerTokenHashes) this.playerTokenHashes.set(key, value);
     for (const [key, value] of state.studentAccounts) this.studentAccounts.set(key, value);
     for (const answer of state.answers) this.idempotency.set(`${answer.playerId}:${answer.idempotencyKey}`, { accepted: true });
@@ -98,6 +125,9 @@ export class AuthoritativeSession {
       scores: [...this.scores],
       streaks: [...this.streaks],
       xp: [...this.xp],
+      bonusOffers: [...this.bonusOffers],
+      bonusSelections: [...this.bonusSelections],
+      scoreAdjustments: [...this.scoreAdjustments],
       playerTokenHashes: [...this.playerTokenHashes],
       studentAccounts: [...this.studentAccounts],
       currentIndex: this.currentIndex,
@@ -187,15 +217,80 @@ export class AuthoritativeSession {
         return answer && at >= answer.submittedAt + 1500;
       });
       if (at >= this.deadlineAt || complete) this.revealQuestion();
-    } else if (this.phase === "reveal" && at >= this.revealUntil) this.nextQuestion();
+    } else if (this.phase === "reveal") {
+      const feedbackShown = at >= this.revealUntil - REVEAL_WINDOW_MS + MIN_FEEDBACK_MS;
+      const resolved = [...this.players.keys()].every(playerId => {
+        const answer = this.answers.find(item => item.playerId === playerId && item.questionIndex === this.currentIndex);
+        if (!answer || answer.score.base === 0) return true;
+        const selection = this.bonusSelections.get(this.bonusKey(playerId));
+        return Boolean(selection && (selection.kind === "points" || selection.targetId));
+      });
+      if (at >= this.revealUntil || (feedbackShown && resolved)) this.nextQuestion();
+    }
   }
 
-  private revealQuestion() { this.phase = "reveal"; this.revealUntil = this.now() + 2000; this.emit("question.revealed", { questionIndex: this.currentIndex }); }
+  private bonusKey(playerId: string) { return `${this.currentIndex}:${playerId}`; }
+  private offerFor(playerId: string): [BonusOffer, BonusOffer, BonusOffer] {
+    const key = this.bonusKey(playerId);
+    const existing = this.bonusOffers.get(key);
+    if (existing) return existing;
+    const offers: [BonusOffer, BonusOffer, BonusOffer] = [150, 300, "hack"];
+    for (let index = 2; index > 0; index--) {
+      const other = randomInt(index + 1);
+      [offers[index], offers[other]] = [offers[other]!, offers[index]!];
+    }
+    this.bonusOffers.set(key, offers);
+    return offers;
+  }
+  private adjustScore(playerId: string, points: number) {
+    this.scores.set(playerId, Math.max(0, (this.scores.get(playerId) ?? 0) + points));
+    const key = this.bonusKey(playerId);
+    this.scoreAdjustments.set(key, (this.scoreAdjustments.get(key) ?? 0) + points);
+  }
+  pickBonus(playerId: string, boxIndex: number) {
+    if (this.phase !== "reveal" || this.now() >= this.revealUntil) throw new Error("bonus_closed");
+    if (!Number.isInteger(boxIndex) || boxIndex < 0 || boxIndex > 2) throw new Error("invalid_box");
+    const answer = this.answers.find(item => item.playerId === playerId && item.questionIndex === this.currentIndex);
+    if (!answer || answer.score.base === 0) throw new Error("bonus_not_earned");
+    const key = this.bonusKey(playerId);
+    if (this.bonusSelections.has(key)) return this.playerResult(playerId);
+    const offer = this.offerFor(playerId)[boxIndex]!;
+    const hasTarget = [...this.players.keys()].some(id => id !== playerId);
+    const selection: BonusSelection = offer === "hack" && hasTarget
+      ? { boxIndex, kind: "hack", points: 0 }
+      : { boxIndex, kind: "points", points: offer === "hack" ? 150 : offer, ...(offer === "hack" ? { soloFallback: true } : {}) };
+    this.bonusSelections.set(key, selection);
+    if (selection.kind === "points") this.adjustScore(playerId, selection.points);
+    this.emit("bonus.picked", { playerId, questionIndex: this.currentIndex, kind: selection.kind });
+    return this.playerResult(playerId);
+  }
+  hack(playerId: string, targetId: string) {
+    if (this.phase !== "reveal" || this.now() >= this.revealUntil) throw new Error("bonus_closed");
+    const key = this.bonusKey(playerId);
+    const selection = this.bonusSelections.get(key);
+    if (!selection || selection.kind !== "hack") throw new Error("hack_not_earned");
+    if (selection.targetId) return this.playerResult(playerId);
+    if (targetId === playerId || !this.players.has(targetId)) throw new Error("invalid_hack_target");
+    const stolen = Math.floor(this.score(targetId) * HACK_PERCENT / 100);
+    this.adjustScore(targetId, -stolen);
+    this.adjustScore(playerId, stolen);
+    Object.assign(selection, { targetId, stolen });
+    this.emit("bonus.hacked", { playerId, targetId, questionIndex: this.currentIndex, stolen });
+    return this.playerResult(playerId);
+  }
+  private revealQuestion() {
+    this.phase = "reveal";
+    this.revealUntil = this.now() + REVEAL_WINDOW_MS;
+    for (const answer of this.answers) {
+      if (answer.questionIndex === this.currentIndex && answer.score.base > 0) this.offerFor(answer.playerId);
+    }
+    this.emit("question.revealed", { questionIndex: this.currentIndex });
+  }
   nextQuestion() { if (this.phase !== "reveal") throw new Error("invalid_phase"); if (this.currentIndex + 1 >= this.snapshot.questions.length) { this.phase = "ended"; this.emit("session.ended"); } else { this.currentIndex += 1; this.openQuestion(); } }
 
   state(): PublicSessionState { const question = this.snapshot.questions[this.currentIndex]; return PublicSessionState.parse({ code: this.code, questionCount: this.snapshot.questions.length, phase: this.phase, lobbyLocked: this.lobbyLocked, players: [...this.players.values()], question: question && this.phase !== "lobby" && this.phase !== "ended" ? { index: this.currentIndex, prompt: question.prompt, options: question.options, deadlineAt: this.deadlineAt, timeLimitMs: question.timeLimitMs } : undefined, reveal: this.phase === "reveal" && question ? { correctOption: question.correctOption, explanation: question.explanation } : undefined, questionIndex: this.currentIndex, answeredCount: this.answers.filter(a => a.questionIndex === this.currentIndex).length }); }
   score(playerId: string) { return this.scores.get(playerId) ?? 0; }
-  playerResult(playerId: string) {
+  playerResult(playerId: string): PlayerResult {
     const answer = this.answers.find(a => a.playerId === playerId && a.questionIndex === this.currentIndex);
     if (this.phase !== "reveal" && this.phase !== "ended") {
       return {
@@ -204,12 +299,16 @@ export class AuthoritativeSession {
         selectedOption: answer?.optionIndex,
       };
     }
+    const bonus = answer?.score.base ? this.bonusSelections.get(this.bonusKey(playerId)) : undefined;
     return { questionIndex: this.currentIndex, score: this.score(playerId), xp: this.xp.get(playerId) ?? 0,
       questionXp: answer ? (answer.score.base ? 100 : 10) : 0,
-      questionScore: answer?.score.total ?? 0, correct: Boolean(answer?.score.base),
+      questionScore: (answer?.score.total ?? 0) + (this.scoreAdjustments.get(this.bonusKey(playerId)) ?? 0), correct: Boolean(answer?.score.base),
       answered: Boolean(answer), selectedOption: answer?.optionIndex,
       correctOption: answer ? this.snapshot.questions[this.currentIndex]!.correctOption : undefined,
-      streak: this.streaks.get(playerId) ?? 0 };
+      streak: this.streaks.get(playerId) ?? 0,
+      ...(answer?.score.base ? { bonus: bonus
+        ? { available: false, ...bonus, ...(bonus.kind === "hack" && !bonus.targetId ? { targets: [...this.players.values()].filter(player => player.id !== playerId).map(player => ({ id: player.id, displayName: player.displayName })) } : {}) }
+        : { available: this.phase === "reveal" && this.now() < this.revealUntil } } : {}) };
   }
   answerBreakdown(playerId: string) {
     if (!this.players.has(playerId)) throw new Error("player_not_found");
@@ -224,7 +323,7 @@ export class AuthoritativeSession {
         correctOption: question.correctOption,
         correctAnswer: question.options[question.correctOption]!,
         correct: answer?.optionIndex === question.correctOption,
-        score: answer?.score.total ?? 0,
+        score: (answer?.score.total ?? 0) + (this.scoreAdjustments.get(`${questionIndex}:${playerId}`) ?? 0),
       };
     });
   }

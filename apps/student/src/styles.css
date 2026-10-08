@@ -112,3 +112,20 @@
 .student-preview-option input{margin-top:4px;accent-color:#4b61d1}
 .student-preview-navigation{display:flex;justify-content:space-between;gap:12px}
 @media(max-width:520px){.teacher-studio-feedback{right:16px;bottom:16px}.student-quiz-preview .ui-card{padding:18px}.student-quiz-preview legend{font-size:18px}}
+
+.answer-review{display:grid;gap:10px;margin:16px 0;text-align:left}
+.answer-review>div{padding:13px 17px;border-radius:13px;border:2px solid}
+.answer-review span,.answer-review strong{display:block}
+.answer-review span{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.answer-review strong{font-size:18px;margin-top:4px}
+.answer-review-wrong{background:#fff0f1;color:#ab2032;border-color:#f58a96}
+.answer-review-right{background:#eafff1;color:#146f43;border-color:#7dd6a0}
+.mystery-card{padding:21px;margin:16px 0;color:#00004e}
+.mystery-card h2{font-size:22px;margin:0 0 7px}
+.mystery-card p{font-size:13px;color:#566582;margin:0 0 14px}
+.mystery-boxes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.mystery-boxes button,.hack-targets button{border:2px solid #6275de;border-radius:14px;background:#eef1ff;color:#091461;cursor:pointer;font-weight:900;padding:14px 8px}
+.mystery-boxes button span{display:block;font-size:31px;line-height:1}
+.mystery-boxes button:hover,.hack-targets button:hover{background:#dce4ff}
+.mystery-boxes button:disabled,.hack-targets button:disabled{cursor:wait;opacity:.6}
+.hack-targets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}

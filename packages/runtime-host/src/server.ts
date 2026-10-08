@@ -3,10 +3,12 @@ import cors from "@fastify/cors";
 import { Server } from "socket.io";
 import {
   AnswerRequest,
+  BonusPickRequest,
   CreateSessionRequest,
   GameSnapshot,
   HostCommand,
   HttpAnswerRequest,
+  HackRequest,
   JoinRequest,
   ReconnectRequest,
   SessionCodeParam,
@@ -316,6 +318,28 @@ export function createRuntimeHost(
       if (result.accepted) await persistSession(session);
       publish(session);
       return reply.send(result);
+    } catch (error) { return errorResponse(reply, error); }
+  });
+
+  app.post<{ Params: CodeParams }>("/api/v1/sessions/:code/players/bonus", async (request, reply) => {
+    try {
+      const session = getSession(request.params.code);
+      const body = BonusPickRequest.parse(request.body);
+      if (!session.verifyPlayer(body.playerId, token(request))) return reply.code(401).send({ error: "unauthorized" });
+      const result = session.pickBonus(body.playerId, body.boxIndex);
+      await persistSession(session);
+      return reply.send({ available: true, ...result });
+    } catch (error) { return errorResponse(reply, error); }
+  });
+
+  app.post<{ Params: CodeParams }>("/api/v1/sessions/:code/players/hack", async (request, reply) => {
+    try {
+      const session = getSession(request.params.code);
+      const body = HackRequest.parse(request.body);
+      if (!session.verifyPlayer(body.playerId, token(request))) return reply.code(401).send({ error: "unauthorized" });
+      const result = session.hack(body.playerId, body.targetId);
+      await persistSession(session);
+      return reply.send({ available: true, ...result });
     } catch (error) { return errorResponse(reply, error); }
   });
 
