@@ -48,15 +48,8 @@ class PostgresStudentAccountStore implements StudentAccountStore {
   private pool: pg.Pool;
   constructor(connectionString: string) { this.pool = new pg.Pool({ connectionString }); }
   async init() {
-    await this.pool.query(`CREATE TABLE IF NOT EXISTS student_accounts (
-      id uuid PRIMARY KEY, name text NOT NULL, email text NOT NULL UNIQUE,
-      password_hash text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
-    )`);
-    await this.pool.query(`CREATE TABLE IF NOT EXISTS student_sessions (
-      token_hash text PRIMARY KEY, student_id uuid NOT NULL REFERENCES student_accounts(id) ON DELETE CASCADE,
-      expires_at timestamptz NOT NULL
-    )`);
-    await this.pool.query("CREATE INDEX IF NOT EXISTS student_sessions_expires_at_idx ON student_sessions(expires_at)");
+    await this.pool.query("SELECT id, name, email, password_hash, created_at FROM student_accounts LIMIT 0");
+    await this.pool.query("SELECT token_hash, student_id, expires_at FROM student_sessions LIMIT 0");
   }
   async listAccounts() {
     const result = await this.pool.query<StudentAccount>("SELECT id, name, email FROM student_accounts ORDER BY name, id");
@@ -90,6 +83,7 @@ function publicAccount(account: StoredAccount): StudentAccount { return { id: ac
 export function makeStudentAccountStore(): StudentAccountStore {
   return process.env.DATABASE_URL ? new PostgresStudentAccountStore(process.env.DATABASE_URL) : new MemoryStudentAccountStore();
 }
+export function makeMemoryStudentAccountStore(): StudentAccountStore { return new MemoryStudentAccountStore(); }
 export async function issueStudentSession(store: StudentAccountStore, account: StudentAccount) {
   const token = randomBytes(32).toString("hex");
   await store.saveSession(account.id, hashToken(token), Date.now() + lifetimeMs);

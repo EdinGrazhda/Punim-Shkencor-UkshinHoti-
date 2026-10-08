@@ -30,9 +30,13 @@ export const lessonImportResultSchema = z.object({
   duplicate: z.boolean(),
 });
 export const lessonIdSchema = z.string().uuid();
+export const MAX_QUIZ_QUESTIONS = 200;
+export const MAX_LESSON_FILE_BYTES = 50 * 1024 * 1024;
+export const MAX_LESSON_TEXT_CHARS = 2_000_000;
+export const questionCountSchema = z.number().int().min(1).max(MAX_QUIZ_QUESTIONS);
 export const generateQuizRequestSchema = z.object({
   lessonId: lessonIdSchema,
-  questionCount: z.number().int().min(3).max(20).default(8),
+  questionCount: questionCountSchema.default(8),
 });
 
 export const questionKindSchema = z.enum(["multiple-choice", "true-false"]);
@@ -59,7 +63,7 @@ export const quizGenerationResultSchema = z.object({
   title: z.string().trim().min(1).max(160),
   language: z.string().trim().min(2).max(16),
   difficulty: difficultySchema,
-  questions: z.array(generatedQuestionSchema).min(1).max(50),
+  questions: z.array(generatedQuestionSchema).min(1).max(MAX_QUIZ_QUESTIONS),
 });
 export type QuizGenerationResult = z.infer<typeof quizGenerationResultSchema>;
 
@@ -92,7 +96,7 @@ export const ApprovedQuestion = z.object({
   options: z.array(z.string().min(1)).min(2).max(6),
   correctOption: z.number().int().nonnegative(),
   timeLimitMs: z.number().int().positive().max(10 * 60_000).default(10_000),
-  explanation: z.string().optional(),
+  explanation: z.string().trim().min(1).max(2000).optional(),
 }).superRefine((question, context) => {
   if (question.correctOption >= question.options.length) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "correctOption is out of range" });
@@ -107,6 +111,8 @@ export const GameSnapshot = z.object({
 });
 export type GameSnapshot = z.infer<typeof GameSnapshot>;
 
+// Runtime contracts shared by the teacher host and student browser. Keep these
+// additive so the lesson/AI/review contracts above remain the single source of truth.
 export const Player = z.object({
   id: z.string().min(1),
   displayName: z.string().trim().min(1).max(32),
@@ -151,6 +157,14 @@ export const PublicQuestion = z.object({
 });
 export type PublicQuestion = z.infer<typeof PublicQuestion>;
 
+// Database-free demo only. Deliberately excludes correct answers, explanations,
+// citations and scores; it is not a substitute for an authoritative live session.
+export const StudentQuizPreview = z.object({
+  title: z.string().min(1),
+  questions: z.array(PublicQuestion.pick({ prompt: true, options: true }).extend({ id: z.string().uuid() })).min(1),
+});
+export type StudentQuizPreview = z.infer<typeof StudentQuizPreview>;
+
 export const PublicSessionState = z.object({
   code: z.string().length(6),
   questionCount: z.number().int().positive(),
@@ -163,15 +177,8 @@ export const PublicSessionState = z.object({
   reveal: z.object({ correctOption: z.number().int().nonnegative(), explanation: z.string().optional() }).optional(),
 });
 export type PublicSessionState = z.infer<typeof PublicSessionState>;
-
-export const SocketEvents = {
-  join: JoinRequest,
-  answer: AnswerRequest,
-  hostCommand: HostCommand,
-} as const;
-
+export const SocketEvents = { join: JoinRequest, answer: AnswerRequest, hostCommand: HostCommand } as const;
 export type ScoreBreakdown = { base: number; speedBonus: number; streakBonus: number; total: number };
-
 export function calculateScore(correct: boolean, elapsedMs: number, timeLimitMs: number, streak: number): ScoreBreakdown {
   if (!correct) return { base: 0, speedBonus: 0, streakBonus: 0, total: 0 };
   const boundedElapsed = Math.max(0, Math.min(elapsedMs, timeLimitMs));
@@ -188,6 +195,7 @@ export const gameSnapshotFromApprovedQuestions = (input: {
     prompt: string;
     options: Array<{ text: string; isCorrect: boolean }>;
     timeLimitMs?: number;
+    explanation?: string;
   }>;
 }): GameSnapshot => GameSnapshot.parse({
   id: input.id,
@@ -198,6 +206,7 @@ export const gameSnapshotFromApprovedQuestions = (input: {
     options: question.options.map((option) => option.text),
     correctOption: question.options.findIndex((option) => option.isCorrect),
     timeLimitMs: question.timeLimitMs ?? 30_000,
+    ...(question.explanation ? { explanation: question.explanation } : {}),
   })),
 });
 

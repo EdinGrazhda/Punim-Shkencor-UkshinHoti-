@@ -70,6 +70,9 @@ describe.skipIf(!testDatabaseUrl)("PostgreSQL lesson repository", () => {
 
     await repositories.questions.setReviewStatus(generated.id, "rejected");
     await repositories.questions.reorder(quiz.id, [duplicate!.id, manual!.id, generated.id]);
+    const reordered = await repositories.quizzes.getForReview(quiz.id);
+    expect(reordered?.questions.map(question => question.id)).toEqual([duplicate!.id, manual!.id, generated.id]);
+    expect(reordered?.questions.find(question => question.id === generated.id)?.reviewStatus).toBe("rejected");
     expect(await repositories.questions.approvePending(quiz.id)).toBe(2);
     await expect(repositories.quizzes.approve(quiz.id)).rejects.toThrow(/Every question/);
     await repositories.questions.setReviewStatus(generated.id, "approved");

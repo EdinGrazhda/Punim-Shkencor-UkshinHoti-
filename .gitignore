@@ -3,7 +3,7 @@
 .env.*
 !.env.example
 
-# Dependency directories and package-manager caches
+# Workspace dependencies and package-manager caches
 node_modules/
 .pnpm-store/
 .npm/
@@ -11,8 +11,9 @@ node_modules/
 .yarn/unplugged/
 .pnp.*
 
-# JavaScript / TypeScript build output and caches
+# JavaScript, TypeScript, Vite, and Electron build output
 dist/
+dist-content/
 build/
 out/
 release/
@@ -20,18 +21,18 @@ release/
 .turbo/
 .cache/
 .parcel-cache/
+coverage/
 *.tsbuildinfo
 .eslintcache
 .stylelintcache
 
-# Test and coverage output
-coverage/
+# Test output
 .nyc_output/
 playwright-report/
 test-results/
 blob-report/
 
-# Python virtual environments, builds, and caches
+# Python and Graphify local state
 venv/
 .venv/
 env/
@@ -53,8 +54,6 @@ coverage.xml
 htmlcov/
 pip-wheel-metadata/
 site/
-
-# Graphify local generated state (fixtures under tests remain trackable)
 /.graphify/
 /graphify-out/
 /.graphify_*.json
@@ -78,16 +77,15 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 debug.log*
+/output/qa/
 
-# Editor and IDE state
+# Editor and operating-system state
 .idea/
 .vscode/
 .history/
 *.swp
 *.swo
 *~
-
-# Operating-system metadata
 .DS_Store
 .AppleDouble
 .LSOverride

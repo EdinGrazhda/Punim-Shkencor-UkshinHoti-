@@ -22,7 +22,13 @@ describe("teacher quiz contracts", () => {
 
   it("exports approved questions in Edin's runtime snapshot shape", () => {
     expect(gameSnapshotFromApprovedQuestions({
-      id: "quiz-1", title: "Water", questions: [{ id: "q-1", prompt: "Freezing point?", options: [{ text: "0°C", isCorrect: true }, { text: "100°C", isCorrect: false }] }],
-    })).toEqual({ id: "quiz-1", title: "Water", questions: [{ id: "q-1", prompt: "Freezing point?", options: ["0°C", "100°C"], correctOption: 0, timeLimitMs: 30_000 }] });
+      id: "quiz-1", title: "Water", questions: [{ id: "q-1", prompt: "Freezing point?", explanation: "The lesson states that water freezes at 0°C.", options: [{ text: "0°C", isCorrect: true }, { text: "100°C", isCorrect: false }] }],
+    })).toEqual({ id: "quiz-1", title: "Water", questions: [{ id: "q-1", prompt: "Freezing point?", options: ["0°C", "100°C"], correctOption: 0, timeLimitMs: 30_000, explanation: "The lesson states that water freezes at 0°C." }] });
+  });
+
+  it("keeps the Edin-optional explanation optional for existing approved quizzes", () => {
+    expect(gameSnapshotFromApprovedQuestions({
+      id: "quiz-2", title: "Without explanation", questions: [{ id: "q-2", prompt: "Question?", options: [{ text: "A", isCorrect: true }, { text: "B", isCorrect: false }] }],
+    })).toEqual({ id: "quiz-2", title: "Without explanation", questions: [{ id: "q-2", prompt: "Question?", options: ["A", "B"], correctOption: 0, timeLimitMs: 30_000 }] });
   });
 });

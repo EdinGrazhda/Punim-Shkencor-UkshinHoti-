@@ -1,19 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import path from "node:path";
 import mammoth from "mammoth";
-import { lessonImportRequestSchema } from "@ckadinti/contracts";
-import type { createRepositories } from "@ckadinti/database";
+import { lessonImportRequestSchema, MAX_LESSON_FILE_BYTES, MAX_LESSON_TEXT_CHARS } from "@ckadinti/contracts";
+import type { ContentRepositories } from "./content-repositories.js";
+import { extractPdfText } from "./pdf-extraction.js";
 
-// Load through CommonJS require so pdf-parse does not mistake Vite/Vitest's
-// module loader for its standalone CLI and try to open its own test PDF.
-const pdfParse = createRequire(import.meta.url)("pdf-parse") as typeof import("pdf-parse");
+type Repositories = ContentRepositories;
 
-type Repositories = ReturnType<typeof createRepositories>;
-
-const MAX_SOURCE_BYTES = 12 * 1024 * 1024;
-const MAX_NORMALIZED_CHARS = 300_000;
+const MAX_BLOCK_CHARS = 6_000;
 
 function sourceTypeFromPath(filePath: string): "txt" | "markdown" | "pdf" | "docx" {
   const extension = path.extname(filePath).toLowerCase();
@@ -24,7 +19,7 @@ function sourceTypeFromPath(filePath: string): "txt" | "markdown" | "pdf" | "doc
     ".docx": "docx",
   };
   const sourceType = byExtension[extension];
-  if (!sourceType) throw new Error("Choose a TXT, Markdown, text-based PDF, or DOCX lesson file.");
+  if (!sourceType) throw new Error("Choose a TXT, Markdown, PDF, or DOCX lesson file.");
   return sourceType;
 }
 
@@ -53,8 +48,17 @@ export function splitLessonIntoBlocks(normalizedText: string): Array<{ heading: 
     const charEnd = charStart + value.length;
     const headingMatch = value.match(/^#{1,6}\s+(.+)$/m);
     if (headingMatch) currentHeading = headingMatch[1]?.trim() ?? null;
-    blocks.push({ heading: currentHeading, charStart, charEnd });
-    if (blocks.length >= 500) break;
+    // Preserve all paragraphs and split large ones without changing source offsets.
+    for (let start = charStart; start < charEnd;) {
+      let end = Math.min(start + MAX_BLOCK_CHARS, charEnd);
+      if (end < charEnd) {
+        const whitespace = normalizedText.lastIndexOf(" ", end);
+        if (whitespace > start + MAX_BLOCK_CHARS / 2) end = whitespace;
+      }
+      blocks.push({ heading: currentHeading, charStart: start, charEnd: end });
+      start = end;
+      while (start < charEnd && /\s/u.test(normalizedText[start]!)) start++;
+    }
   }
   if (!blocks.length && normalizedText.length) {
     blocks.push({ heading: null, charStart: 0, charEnd: normalizedText.length });
@@ -62,34 +66,33 @@ export function splitLessonIntoBlocks(normalizedText: string): Array<{ heading: 
   return blocks;
 }
 
-async function extractText(filePath: string, sourceType: ReturnType<typeof sourceTypeFromPath>): Promise<string> {
-  const buffer = await readFile(filePath);
-  if (buffer.byteLength > MAX_SOURCE_BYTES) throw new Error("Lesson files must be 12 MB or smaller.");
+async function extractText(buffer: Buffer, sourceType: ReturnType<typeof sourceTypeFromPath>): Promise<string> {
+  if (buffer.byteLength > MAX_LESSON_FILE_BYTES) throw new Error("Lesson files must be 50 MB or smaller.");
   if (sourceType === "txt" || sourceType === "markdown") return buffer.toString("utf8");
   if (sourceType === "pdf") {
-    // pdf.js misreads Node's Buffer subclass as a generic data object; pass a plain Uint8Array.
-    const result = await pdfParse(new Uint8Array(buffer) as Buffer);
-    return result.text;
+    return extractPdfText(new Uint8Array(buffer));
   }
   const result = await mammoth.extractRawText({ buffer });
   return result.value;
 }
 
-export async function importLessonFile(filePath: string, repositories: Repositories) {
-  const sourceType = sourceTypeFromPath(filePath);
-  const rawText = await extractText(filePath, sourceType);
+export async function importLessonBytes(filename: string, source: Uint8Array, repositories: Repositories) {
+  const originalFilename = path.basename(filename).trim();
+  if (!originalFilename || originalFilename.length > 255) throw new Error("Choose a lesson filename under 256 characters.");
+  const sourceType = sourceTypeFromPath(originalFilename);
+  const rawText = await extractText(Buffer.from(source), sourceType);
   const normalizedText = normalizeLessonText(rawText);
   if (!normalizedText) throw new Error("No readable text was found in this lesson file.");
-  if (normalizedText.length > MAX_NORMALIZED_CHARS) {
-    throw new Error("Extracted lesson text exceeds the 300,000 character limit.");
+  if (normalizedText.length > MAX_LESSON_TEXT_CHARS) {
+    throw new Error("Extracted lesson text exceeds the 2,000,000 character limit. Import a smaller section.");
   }
 
-  const title = path.basename(filePath, path.extname(filePath)).replace(/[_-]+/g, " ").trim() || "Untitled lesson";
+  const title = path.basename(originalFilename, path.extname(originalFilename)).replace(/[_-]+/g, " ").trim() || "Untitled lesson";
   const request = lessonImportRequestSchema.parse({
     title,
-    language: "en",
+    language: "auto",
     sourceType,
-    originalFilename: path.basename(filePath),
+    originalFilename,
     normalizedText,
   });
   const contentSha256 = createHash("sha256").update(request.normalizedText, "utf8").digest("hex");
@@ -101,4 +104,8 @@ export async function importLessonFile(filePath: string, repositories: Repositor
   const lesson = await repositories.lessons.get(result.lesson.id);
   if (!lesson) throw new Error("The lesson was saved but could not be loaded.");
   return { lesson, duplicate: result.duplicate };
+}
+
+export async function importLessonFile(filePath: string, repositories: Repositories) {
+  return importLessonBytes(path.basename(filePath), await readFile(filePath), repositories);
 }
