@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createRuntimeHost } from "./server.js";
 import { makeMemoryStudentAccountStore } from "./student-auth.js";
 import { hashPassword, issueTeacherSession, makeMemoryTeacherStore } from "./teacher-auth.js";
@@ -19,6 +19,7 @@ describe("runtime session persistence", () => {
   let secondHost: ReturnType<typeof createRuntimeHost> | undefined;
 
   beforeAll(async () => {
+    vi.stubEnv("STUDENT_ORIGIN", "http://192.168.1.101:4173");
     await teacherStore.init();
     const teacher = await teacherStore.create("Ada Teacher", "ada@example.test", await hashPassword("teacher-password-123"), "teacher", false);
     teacherToken = (await issueTeacherSession(teacherStore, teacher)).token;
@@ -27,6 +28,7 @@ describe("runtime session persistence", () => {
   });
 
   afterAll(async () => {
+    vi.unstubAllEnvs();
     if (secondHost) await secondHost.app.close();
     else await firstHost?.app.close();
   });
@@ -39,6 +41,7 @@ describe("runtime session persistence", () => {
       payload: { code: "PERS01", snapshot },
     });
     expect(created.statusCode).toBe(201);
+    expect(created.json().joinUrl).toBe("http://192.168.1.101:4173/join?code=PERS01");
 
     const joined = await firstHost.app.inject({
       method: "POST",
@@ -101,6 +104,12 @@ describe("runtime session persistence", () => {
       headers: { authorization: "Bearer " + teacherToken },
     });
     const renewedHostToken = resumedTeacher.json().session.token as string;
+    expect(resumedTeacher.json().session.joinUrl).toBe("http://192.168.1.101:4173/join?code=PERS01");
+    const restoredHost = await secondHost.app.inject({
+      method: "GET", url: "/api/v1/sessions/PERS01/host",
+      headers: { authorization: "Bearer " + renewedHostToken },
+    });
+    expect(restoredHost.json().joinUrl).toBe("http://192.168.1.101:4173/join?code=PERS01");
     const reveal = await secondHost.app.inject({
       method: "POST",
       url: "/api/v1/sessions/PERS01/commands",

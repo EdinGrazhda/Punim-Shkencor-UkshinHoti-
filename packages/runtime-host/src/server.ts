@@ -168,7 +168,7 @@ export function createRuntimeHost(
     if (teacher.mustChangePassword) return reply.code(403).send({ error: "password_change_required" });
     const code = [...owners.entries()].reverse().find(([, id]) => id === teacher.id)?.[0];
     const session = code ? sessions.get(code) : undefined;
-      return reply.send({ session: session ? { code: session.code, token: session.hostToken, state: session.state() } : null });
+    return reply.send({ session: session ? { ...joinPayload(request, session.code), token: session.hostToken, state: session.state() } : null });
   });
 
   app.get("/api/v1/teachers/me/sessions", async (request, reply) => {
@@ -360,7 +360,7 @@ export function createRuntimeHost(
     return reply.send({ leaderboard: [...rankings.values()].sort((a, b) => b.score - a.score || a.displayName.localeCompare(b.displayName)) });
   });
   app.get<{ Params: CodeParams }>("/api/v1/sessions/:code/host", async (request, reply) => {
-    try { const session = getSession(request.params.code); if (!session.verifyHost(token(request))) return reply.code(401).send({ error: "unauthorized" }); return reply.send({ snapshot: session.snapshot, state: session.state(), leaderboard: session.leaderboard() }); }
+    try { const session = getSession(request.params.code); if (!session.verifyHost(token(request))) return reply.code(401).send({ error: "unauthorized" }); return reply.send({ snapshot: session.snapshot, state: session.state(), leaderboard: session.leaderboard(), ...joinPayload(request, session.code) }); }
     catch (error) { return errorResponse(reply, error); }
   });
 

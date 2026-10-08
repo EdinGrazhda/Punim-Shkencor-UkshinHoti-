@@ -42,7 +42,7 @@ export function Teacher() {
       let active = true;
       void api.teacherSession(teacher.token).then(({ session }) => {
         if (!active || !session) return;
-        const restoredHost = { code: session.code, token: session.token };
+        const restoredHost = { code: session.code, token: session.token, joinUrl: session.joinUrl };
         localStorage.setItem("ckadinti-host", JSON.stringify(restoredHost));
         setHost(restoredHost);
         setState(session.state);
@@ -61,12 +61,17 @@ export function Teacher() {
           if (!teacher?.token) throw new Error("Sign in again to restore your classroom session.");
           const resumed = await api.teacherSession(teacher.token);
           if (!resumed.session) throw new Error("No saved classroom session is available to restore.");
-          restoredHost = { code: resumed.session.code, token: resumed.session.token };
+          restoredHost = { code: resumed.session.code, token: resumed.session.token, joinUrl: resumed.session.joinUrl };
           hosted = await api.host(restoredHost);
           localStorage.setItem("ckadinti-host", JSON.stringify(restoredHost));
           if (active) setHost(restoredHost);
         }
         if (!active) return;
+        if (restoredHost.joinUrl !== hosted.joinUrl) {
+          restoredHost = { ...restoredHost, joinUrl: hosted.joinUrl };
+          localStorage.setItem("ckadinti-host", JSON.stringify(restoredHost));
+          setHost(restoredHost);
+        }
         setState(hosted.state);
         setGameSnapshot(hosted.snapshot);
         setQuestionSeconds((hosted.snapshot.questions[0]?.timeLimitMs ?? 10000) / 1000);
@@ -99,10 +104,10 @@ export function Teacher() {
   }, [tab, selectedHistoryCode]);
 
   function navigateTab(next: Tab) { setTab(next); setParams({ tab: next }); setMobileMenu(false); }
-  async function createSession(snapshot: GameSnapshot) { setBusy(true); setError(""); try { const teacher = readTeacherIdentity("teacher"); if (!teacher?.token) throw new Error("Please sign in to create a game."); const timedSnapshot = { ...snapshot, questions: snapshot.questions.map(question => ({ ...question, timeLimitMs: questionSeconds * 1000 })) }; const created = await api.create(timedSnapshot, teacher.token); const next = { code: created.code, token: created.hostToken }; localStorage.setItem("ckadinti-host", JSON.stringify(next)); setGameSnapshot(timedSnapshot); setHost(next); setState(created.state); navigateTab("live"); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  async function createSession(snapshot: GameSnapshot) { setBusy(true); setError(""); try { const teacher = readTeacherIdentity("teacher"); if (!teacher?.token) throw new Error("Please sign in to create a game."); const timedSnapshot = { ...snapshot, questions: snapshot.questions.map(question => ({ ...question, timeLimitMs: questionSeconds * 1000 })) }; const created = await api.create(timedSnapshot, teacher.token); const next = { code: created.code, token: created.hostToken, joinUrl: created.joinUrl }; localStorage.setItem("ckadinti-host", JSON.stringify(next)); setGameSnapshot(timedSnapshot); setHost(next); setState(created.state); navigateTab("live"); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function command(next: HostCommand) { if (!host) return; setBusy(true); setError(""); try { const response = await api.command(host, next); setState(response.state); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   const count = state?.players.length ?? 0;
-  const joinLink = host ? `${window.location.origin}/join?code=${host.code}` : "";
+  const joinLink = host ? host.joinUrl ?? `${window.location.origin}/join?code=${host.code}` : "";
 
   return <div className="teacher-app"><aside className={`teacher-sidebar ${mobileMenu ? "open" : ""}`}><div className="sidebar-head"><Brand /><button className="mobile-close" aria-label="Close menu" onClick={() => setMobileMenu(false)}><X size={20} /></button></div><div className="sidebar-group"><span className="sidebar-label">WORKSPACE</span>{nav.map(item => <button key={item.id} className={`sidebar-item ${tab === item.id ? "active" : ""}`} onClick={() => navigateTab(item.id)}><item.Icon size={19} strokeWidth={2} />{item.label}{item.id === "live" && state?.phase !== "ended" && state && <i className="sidebar-live-dot" />}</button>)}</div><div className="sidebar-bottom"><div className="teacher-avatar">T</div><div><strong>Teacher</strong><small><span className="status-dot online" /> Ready to host</small></div><MoreHorizontal size={18} /></div></aside>{mobileMenu && <button className="sidebar-scrim" aria-label="Close menu" onClick={() => setMobileMenu(false)} />}<main className="teacher-main"><header className="teacher-topbar"><button className="menu-toggle" aria-label="Open menu" onClick={() => setMobileMenu(true)}><Menu size={22} /></button><div className="breadcrumbs">CkaDinTi <ChevronRight size={14} /> <strong>{nav.find(n => n.id === tab)?.label}</strong></div><div className="topbar-right"><Badge className="online-badge"><span className="status-dot online" /> System ready</Badge><div className="teacher-avatar small">T</div></div></header>{error && <div className="teacher-error" role="alert">{error}<button onClick={() => setError("")}>Dismiss</button></div>}
 

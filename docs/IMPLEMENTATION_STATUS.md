@@ -1,5 +1,14 @@
 # Implementation status
 
+## Edin browser lesson integration — 2026-10-08
+
+- LAN join links and QR codes now use the runtime's configured `STUDENT_ORIGIN`, including restored sessions opened by a teacher at localhost. The local `.env` points at this machine's current Wi-Fi address, `192.168.1.101`. Docker service recreation and a second-device check remain pending because automatic approval review could not complete the required Docker command at the session usage limit.
+
+- Docker now includes the trusted teacher content service, with runtime teacher-session authentication and PostgreSQL persistence. The browser proxy routes lesson requests to it and accepts uploads up to 50 MB. Browser authoring no longer requires a separate Electron process in this setup.
+- Create Game supports both PDF/document upload and pasted text with an optional title. Both feed the existing source-grounded generation and mandatory review pipeline.
+- Verification: all 75 runnable workspace tests and runtime/REST smoke checks passed; four opt-in database tests were skipped. Workspace type checking and Docker builds passed. Browser checks against the running PostgreSQL-backed stack verified a 1.1 MB PDF upload, live two-question generation, pasted-text import and live generation, mandatory review, approval, and persistence after reload. A separate image-only PDF passed local OCR inside the content container. Temporary QA accounts/content were removed. The final paste form was checked at desktop and mobile widths, including protection against generating from an old lesson while new text is unsaved.
+- The fallback `graphify update .` code refresh succeeded. Document/image semantic extraction was not requested. The student build still reports its existing large-bundle warning; full classroom/LAN acceptance remains pending.
+
 ## Integrated Arron preview
 
 - [x] Workspace, Electron teacher shell, secure main/preload boundary, and Windows desktop packaging.

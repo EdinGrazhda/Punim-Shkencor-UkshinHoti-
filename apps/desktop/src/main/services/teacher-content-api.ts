@@ -26,6 +26,7 @@ export interface TeacherContentApiOptions {
   getRepositories: () => Repositories;
   authorizeTeacher: (token: string) => Promise<boolean>;
   port?: number;
+  host?: string;
   allowedOrigins?: string[];
 }
 
@@ -84,6 +85,11 @@ export function createTeacherContentApi(options: TeacherContentApiOptions) {
     const origin = request.headers.origin;
     if (origin && !allowedOrigins.has(origin)) {
       sendJson(reply, 403, { error: "origin_not_allowed" });
+      return;
+    }
+
+    if (request.method === "GET" && request.url === "/health") {
+      sendJson(reply, 200, { ok: true, service: "ckadinti-teacher-content" });
       return;
     }
 
@@ -216,7 +222,7 @@ export function createTeacherContentApi(options: TeacherContentApiOptions) {
       return new Promise<void>((resolve, reject) => {
         const onError = (error: Error) => reject(error);
         server!.once("error", onError);
-        server!.listen(port, "127.0.0.1", () => {
+        server!.listen(port, options.host ?? "127.0.0.1", () => {
           server!.off("error", onError);
           resolve();
         });

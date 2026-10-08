@@ -10,6 +10,7 @@ import { loadApprovedSnapshot } from "./services/approved-quiz.js";
 import { generateQuizFromLesson, regenerateQuestionFromLesson } from "./services/quiz-generation.js";
 import { commandHostedSession, createHostedQuizSession, getHostedSessionResults, getHostedSessionState, listHostedSessions } from "./services/runtime-host.js";
 import { createTeacherContentApi } from "./services/teacher-content-api.js";
+import { createTeacherAuthorizer } from "./services/teacher-authorizer.js";
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -30,19 +31,7 @@ function getRepositories(): ReturnType<typeof createRepositories> {
   return repositories;
 }
 
-async function authorizeBrowserTeacher(token: string): Promise<boolean> {
-  const response = await fetch("http://127.0.0.1:4310/api/v1/teachers/me", {
-    headers: { Authorization: `Bearer ${token}` },
-    redirect: "error",
-    signal: AbortSignal.timeout(3_000),
-  });
-  if (response.status === 401 || response.status === 403) return false;
-  if (!response.ok) throw new Error("teacher_auth_unavailable");
-  const result = z.object({ teacher: z.object({ role: z.string(), mustChangePassword: z.boolean() }) }).safeParse(await response.json());
-  return result.success && result.data.teacher.role === "teacher" && !result.data.teacher.mustChangePassword;
-}
-
-const teacherContentApi = createTeacherContentApi({ getRepositories, authorizeTeacher: authorizeBrowserTeacher });
+const teacherContentApi = createTeacherContentApi({ getRepositories, authorizeTeacher: createTeacherAuthorizer() });
 
 function registerIpc(): void {
   const hostResult = async (operation: () => unknown | Promise<unknown>) => {

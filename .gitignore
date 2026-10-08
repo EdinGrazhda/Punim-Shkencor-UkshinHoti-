@@ -13,6 +13,7 @@ node_modules/
 
 # JavaScript, TypeScript, Vite, and Electron build output
 dist/
+dist-content/
 build/
 out/
 release/

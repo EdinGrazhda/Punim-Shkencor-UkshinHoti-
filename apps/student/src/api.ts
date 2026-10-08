@@ -16,7 +16,7 @@ export type StudentAccountIdentity = {
   student: { id: string; name: string; email: string };
   token: string;
 };
-export type HostIdentity = { code: string; token: string };
+export type HostIdentity = { code: string; token: string; joinUrl?: string };
 export type TeacherIdentity = {
   teacher: {
     id: string;
@@ -304,6 +304,7 @@ export const api = {
       session: {
         code: string;
         token: string;
+        joinUrl: string;
         state: PublicSessionState;
       } | null;
     }>("/teachers/me/session", {}, token),
@@ -421,6 +422,7 @@ export const api = {
       snapshot: GameSnapshot;
       state: PublicSessionState;
       leaderboard: Leaderboard["leaderboard"];
+      joinUrl: string;
     }>(`/sessions/${host.code}/host`, {}, host.token),
 };
 
@@ -442,10 +444,11 @@ async function teacherContentRequest<T>(
       },
     });
   } catch {
-    throw new Error("Cannot reach the teacher content service. Start the Electron desktop app and keep it open; it hosts the local browser authoring API.");
+    throw new Error("Cannot reach the lesson service. Check your connection and try again.");
   }
-  const unavailableMessage = `Teacher content service returned HTTP ${response.status}. Start or restart the Electron desktop app; it hosts the local browser authoring API.`;
+  const unavailableMessage = "The lesson service is temporarily unavailable. Please try again shortly.";
   const text = await response.text();
+  if (response.status === 413) throw new Error("Lesson files must be 50 MB or smaller.");
   let data: Record<string, unknown> = {};
   if (text) {
     try {
@@ -462,11 +465,13 @@ async function teacherContentRequest<T>(
   }
   if (!response.ok)
     throw new Error(
-      typeof data.error === "string"
-        ? data.error
-        : response.status >= 500
-          ? unavailableMessage
-          : `Teacher content request failed (${response.status}).`,
+      data.error === "Not Found"
+        ? unavailableMessage
+        : typeof data.error === "string"
+          ? data.error
+          : response.status >= 500
+            ? unavailableMessage
+            : `Teacher content request failed (${response.status}).`,
     );
   return data as T;
 }

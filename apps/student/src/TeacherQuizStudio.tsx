@@ -1,6 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from "react";
-import { MAX_QUIZ_QUESTIONS, questionCountSchema, type GameSnapshot } from "@ckadinti/contracts";
-import { ArrowRight, Check, FileUp, RefreshCw, Save, Sparkles } from "lucide-react";
+import { MAX_LESSON_FILE_BYTES, MAX_LESSON_TEXT_CHARS, MAX_QUIZ_QUESTIONS, questionCountSchema, type GameSnapshot } from "@ckadinti/contracts";
+import { ArrowRight, Check, ClipboardPaste, FileUp, RefreshCw, Save, Sparkles } from "lucide-react";
 import { readTeacherIdentity, teacherContentApi, type TeacherLesson, type TeacherReviewQuestion, type TeacherReviewQuiz, type TeacherQuizSummary } from "./api";
 import { Badge, Button, Card } from "./ui";
 
@@ -31,6 +31,10 @@ export function TeacherQuizStudio({ authToken, hostingEnabled = true, onCreateSe
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [sourceMode, setSourceMode] = useState<"file" | "text">("file");
+  const [textTitle, setTextTitle] = useState("");
+  const [lessonText, setLessonText] = useState("");
+  const hasUnsavedText = sourceMode === "text" && lessonText.trim().length > 0;
 
   async function refresh(keepReview = true) {
     const token = teacherToken();
@@ -59,10 +63,26 @@ export function TeacherQuizStudio({ authToken, hostingEnabled = true, onCreateSe
     event.currentTarget.value = "";
     if (!file) return;
     await perform(async () => {
+      if (file.size > MAX_LESSON_FILE_BYTES) throw new Error("Lesson files must be 50 MB or smaller.");
       const result = await teacherContentApi.importLesson(teacherToken(), file);
       await refresh(false);
       setLessonId(result.lesson.id);
       setNotice(result.duplicate ? "This lesson was already in your library." : `Imported ${result.lesson.title}.`);
+    });
+  }
+
+  async function importPastedText() {
+    if (!lessonText.trim()) return;
+    await perform(async () => {
+      if (lessonText.length > MAX_LESSON_TEXT_CHARS) throw new Error("Paste a smaller section of your lesson (up to 2,000,000 characters).");
+      const title = textTitle.trim().replace(/[\\/:\u0000]/gu, " ") || "Pasted lesson";
+      const file = new File([lessonText], `${title}.txt`, { type: "text/plain" });
+      const result = await teacherContentApi.importLesson(teacherToken(), file);
+      await refresh(false);
+      setLessonId(result.lesson.id);
+      setLessonText("");
+      setTextTitle("");
+      setNotice(result.duplicate ? "This text is already in your library and is selected below." : `Added ${result.lesson.title}. Choose a question count and generate your draft.`);
     });
   }
 
@@ -137,7 +157,7 @@ export function TeacherQuizStudio({ authToken, hostingEnabled = true, onCreateSe
   }
 
   async function generateQuiz() {
-    if (!lessonId || !validQuestionCount) return;
+    if (!lessonId || !validQuestionCount || hasUnsavedText) return;
     await perform(async () => {
       const result = await teacherContentApi.generateQuiz(teacherToken(), lessonId, Number(questionCount));
       setReview(await teacherContentApi.getQuiz(teacherToken(), result.quizId));
@@ -148,19 +168,32 @@ export function TeacherQuizStudio({ authToken, hostingEnabled = true, onCreateSe
   }
 
   return <div className="simple-page teacher-studio">
-    <div className="page-heading"><div><span className="section-kicker">LESSON TO CLASSROOM QUIZ</span><h1>Build a quiz from your lesson</h1><p>Import source material, generate a draft, review its evidence, then approve it before hosting.</p></div></div>
+    <div className="page-heading"><div><span className="section-kicker">LESSON TO CLASSROOM QUIZ</span><h1>Build a quiz from your lesson</h1><p>Upload a PDF or paste your lesson text, generate a draft, then review and approve it before hosting.</p></div></div>
     <div className="teacher-studio-feedback">
       {error && <div className="teacher-studio-message error" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError("")}>Dismiss</button></div>}
       {notice && <div className="teacher-studio-message success" role="status" aria-live="polite">{notice}<button aria-label="Dismiss confirmation" onClick={() => setNotice("")}>Dismiss</button></div>}
     </div>
 
     <div className="teacher-studio-grid">
-      <Card className="teacher-studio-card"><div className="section-title"><div><Badge>STEP 1</Badge><h2>Lesson library</h2></div><label className="teacher-upload-button"><FileUp size={16} /> Import lesson<input type="file" accept=".txt,.md,.pdf,.docx" onChange={event => void importLesson(event)} disabled={working} /></label></div>
-        <p>TXT, Markdown, text or scanned PDF, and DOCX. Up to 50 MB; PDFs up to 500 pages. Scans are read locally with OCR; check recognition accuracy. English OCR is bundled; other languages need local language packs.</p>
+      <Card className="teacher-studio-card"><Badge>STEP 1</Badge><h2>Add a lesson</h2>
+        <div className="teacher-source-switch" role="group" aria-label="Lesson source">
+          <button type="button" aria-pressed={sourceMode === "file"} onClick={() => setSourceMode("file")} disabled={working}><FileUp size={16} /> Upload file</button>
+          <button type="button" aria-pressed={sourceMode === "text"} onClick={() => setSourceMode("text")} disabled={working}><ClipboardPaste size={16} /> Paste text</button>
+        </div>
+        {sourceMode === "file" ? <div className="teacher-source-upload">
+          <FileUp size={28} aria-hidden="true" /><strong>Use a PDF or lesson document</strong>
+          <p>PDF, TXT, Markdown, or DOCX · up to 50 MB</p>
+          <label className="teacher-upload-button"><FileUp size={16} /> Choose file<input aria-label="Upload lesson file" type="file" accept=".txt,.md,.pdf,.docx" onChange={event => void importLesson(event)} disabled={working} /></label>
+          <small>Scanned PDFs use local OCR. English is included; other languages need local packs. Up to 500 pages; check the extracted evidence before approving questions.</small>
+        </div> : <form className="teacher-source-text" onSubmit={event => { event.preventDefault(); void importPastedText(); }}>
+          <label className="teacher-studio-field">Lesson title (optional)<input value={textTitle} onChange={event => setTextTitle(event.target.value)} maxLength={180} placeholder="e.g. Introduction to HTML" disabled={working} /></label>
+          <label className="teacher-studio-field">Lesson text<textarea value={lessonText} onChange={event => setLessonText(event.target.value)} maxLength={MAX_LESSON_TEXT_CHARS} rows={7} placeholder="Paste your notes, a lesson, or an article here…" disabled={working} required /></label>
+          <div className="teacher-source-text-actions"><small>{lessonText.length.toLocaleString()} characters</small><Button type="submit" disabled={working || !lessonText.trim()}><Save size={15} /> Add text to library</Button></div>
+        </form>}
         {working && <p role="status">Processing… Scanned PDFs and large quizzes can take several minutes. Keep this page open.</p>}
-        {lessons.length ? <label className="teacher-studio-field">Choose lesson<select value={lessonId} onChange={event => setLessonId(event.target.value)}>{lessons.map(lesson => <option key={lesson.id} value={lesson.id}>{lesson.title} · {lesson.sourceType.toUpperCase()}</option>)}</select></label> : <div className="teacher-studio-empty">No lessons yet. Import a source file to begin.</div>}
+        {lessons.length ? <label className="teacher-studio-field">Choose lesson<select value={lessonId} onChange={event => setLessonId(event.target.value)} disabled={working}>{lessons.map(lesson => <option key={lesson.id} value={lesson.id}>{lesson.title} · {lesson.sourceType.toUpperCase()}</option>)}</select></label> : <div className="teacher-studio-empty">Your uploaded files and pasted lessons will appear here.</div>}
       </Card>
-      <Card className="teacher-studio-card"><Badge>STEP 2</Badge><h2>Generate a draft</h2><p>AI drafts source-grounded questions. It cannot approve or publish them.</p><label className="teacher-studio-field">Question count<input type="number" min={1} max={MAX_QUIZ_QUESTIONS} step={1} value={questionCount} onChange={event => setQuestionCount(event.target.value)} aria-describedby="question-count-help" /></label><p id="question-count-help">Choose any whole number from 1 to {MAX_QUIZ_QUESTIONS}. Large quizzes run in batches. Very long lessons may be sampled across sections; enough source material is needed for distinct questions.</p>{!validQuestionCount && <p role="alert">Enter a whole number from 1 to {MAX_QUIZ_QUESTIONS}.</p>}<Button onClick={() => void generateQuiz()} disabled={working || !lessonId || !validQuestionCount}><Sparkles size={16} /> {working ? "Working…" : "Generate quiz draft"}</Button></Card>
+      <Card className="teacher-studio-card"><Badge>STEP 2</Badge><h2>Generate a draft</h2><p>AI drafts source-grounded questions. It cannot approve or publish them.</p><label className="teacher-studio-field">Question count<input type="number" min={1} max={MAX_QUIZ_QUESTIONS} step={1} value={questionCount} onChange={event => setQuestionCount(event.target.value)} aria-describedby="question-count-help" /></label><p id="question-count-help">Choose any whole number from 1 to {MAX_QUIZ_QUESTIONS}. Large quizzes run in batches. Very long lessons may be sampled across sections; enough source material is needed for distinct questions.</p>{!validQuestionCount && <p role="alert">Enter a whole number from 1 to {MAX_QUIZ_QUESTIONS}.</p>}{hasUnsavedText && <p>Add your text to the library first to use it for this draft.</p>}<Button onClick={() => void generateQuiz()} disabled={working || !lessonId || !validQuestionCount || hasUnsavedText}><Sparkles size={16} /> {working ? "Working…" : "Generate quiz draft"}</Button></Card>
     </div>
 
     <Card className="teacher-studio-card teacher-studio-library"><div className="section-title"><div><Badge>STEP 3</Badge><h2>Drafts and approved quizzes</h2></div><Button variant="outline" onClick={() => void perform(() => refresh())} disabled={working}><RefreshCw size={15} /> Refresh</Button></div>

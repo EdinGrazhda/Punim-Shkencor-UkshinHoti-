@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "electron-forge start",
     "build": "electron-forge package",
+    "build:content": "vite build --config vite.content.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --root ."
   },

@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
+import { readFile } from "node:fs/promises";
 import type { createRepositories } from "@ckadinti/database";
 import { createTeacherContentApi } from "./teacher-content-api.js";
+import type { ContentRepositories } from "./content-repositories.js";
+import { createMemoryContentRepositories } from "../../demo/memory-repositories.js";
 
 const instances: Array<ReturnType<typeof createTeacherContentApi>> = [];
 
-async function startApi(overrides: { authorizeTeacher?: (token: string) => Promise<boolean>; getRepositories?: () => ReturnType<typeof createRepositories> } = {}) {
+async function startApi(overrides: { authorizeTeacher?: (token: string) => Promise<boolean>; getRepositories?: () => ContentRepositories } = {}) {
   const repositories = {
     lessons: { list: vi.fn(async () => [{ id: "lesson-1", title: "HTML Basics" }]) },
   } as unknown as ReturnType<typeof createRepositories>;
@@ -22,6 +25,8 @@ async function startApi(overrides: { authorizeTeacher?: (token: string) => Promi
 
 afterEach(async () => {
   await Promise.all(instances.splice(0).map(instance => instance.close()));
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("local teacher content API", () => {
@@ -35,6 +40,9 @@ describe("local teacher content API", () => {
 
     const unauthorized = await fetch(`${baseUrl}/lessons`);
     expect(unauthorized.status).toBe(401);
+    const health = await fetch(new URL("/health", baseUrl));
+    expect(await health.json()).toEqual({ ok: true, service: "ckadinti-teacher-content" });
+    expect((await fetch(`${baseUrl}/lessons`, { method: "POST", body: "lesson" })).status).toBe(401);
 
     const response = await fetch(`${baseUrl}/lessons`, { headers: { Authorization: "Bearer valid-teacher-token" } });
     expect(response.status).toBe(200);
@@ -69,6 +77,7 @@ describe("local teacher content API", () => {
   });
 
   it("reports a missing OpenAI key as a setup prerequisite", async () => {
+    vi.stubEnv("AI_PROVIDER", "openai");
     vi.stubEnv("OPENAI_API_KEY", "");
     const { baseUrl } = await startApi({
       getRepositories: () => ({ lessons: { get: vi.fn() } } as unknown as ReturnType<typeof createRepositories>),
@@ -84,5 +93,48 @@ describe("local teacher content API", () => {
     expect(await response.json()).toEqual({
       error: "Set OPENAI_API_KEY in the private root .env file to generate quizzes.",
     });
+  });
+
+  it.each(["pdf", "txt"])("imports %s source and generates a draft with evidence and mandatory review", async sourceType => {
+    vi.stubEnv("AI_PROVIDER", "kilo");
+    const repositories = createMemoryContentRepositories();
+    const { baseUrl } = await startApi({ getRepositories: () => repositories });
+    const quote = "water freezes at 0 degrees Celsius.";
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).startsWith("https://api.kilo.ai/")) return Promise.resolve(new Response(JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: JSON.stringify({
+          title: "Freezing water", language: "en", difficulty: "easy",
+          questions: [{
+            kind: "multiple-choice", prompt: "At what temperature does water freeze?",
+            explanation: quote, topic: "Water", difficulty: "easy", confidence: "high",
+            options: [{ text: "0 degrees Celsius", isCorrect: true }, { text: "100 degrees Celsius", isCorrect: false }],
+            evidence: [{ blockOrdinal: 0, quote }],
+          }],
+        }) } }],
+      })));
+      return realFetch(url, init);
+    }));
+    const body = sourceType === "pdf"
+      ? new Uint8Array(await readFile(new URL("./fixtures/lesson.pdf", import.meta.url)))
+      : `In this lesson, ${quote}`;
+    const headers = { Authorization: "Bearer valid-teacher-token", "Content-Type": "application/json" };
+    const imported = await fetch(`${baseUrl}/lessons`, {
+      method: "POST", headers: { ...headers, "Content-Type": "application/octet-stream", "X-Lesson-Filename": `lesson.${sourceType}` }, body,
+    });
+    expect(imported.status).toBe(201);
+    const { lesson } = await imported.json();
+    expect(lesson.sourceType).toBe(sourceType);
+    const generated = await fetch(`${baseUrl}/lessons/${lesson.id}/generate`, {
+      method: "POST", headers, body: JSON.stringify({ questionCount: 1 }),
+    });
+    expect(generated.status).toBe(201);
+    const { quizId } = await generated.json();
+    const quizUrl = `${baseUrl}/quizzes/${quizId}`;
+    const review = await fetch(quizUrl, { headers }).then(response => response.json());
+    expect(review.status).toBe("needs-review");
+    expect(review.questions).toHaveLength(1);
+    expect(review.questions[0].evidence[0].quote).toBe(quote);
+    expect((await fetch(`${quizUrl}/approve`, { method: "POST", headers })).status).toBe(409);
   });
 });
