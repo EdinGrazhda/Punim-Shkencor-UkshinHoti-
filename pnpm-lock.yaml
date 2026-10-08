@@ -154,6 +154,9 @@ importers:
 
   packages/database:
     dependencies:
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
       drizzle-orm:
         specifier: ^0.43.1
         version: 0.43.1(@types/pg@8.23.1)(pg@8.23.1)(postgres@3.4.9)

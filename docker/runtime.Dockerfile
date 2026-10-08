@@ -21,6 +21,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /workspace/node_modules ./node_modules
 COPY --from=build /workspace/packages/contracts/node_modules ./packages/contracts/node_modules
+COPY --from=build /workspace/packages/database/node_modules ./packages/database/node_modules
 COPY --from=build /workspace/packages/runtime-host/node_modules ./packages/runtime-host/node_modules
 COPY --from=build /workspace/packages/contracts/package.json ./packages/contracts/package.json
 COPY --from=build /workspace/packages/runtime-host/package.json ./packages/runtime-host/package.json

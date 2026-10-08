@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: ckadinti
       POSTGRES_USER: ckadinti
@@ -22,7 +24,7 @@ services:
     environment:
       PORT: "4310"
       DATABASE_URL: postgres://ckadinti:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/ckadinti
-      STUDENT_ORIGIN: http://localhost:4173
+      STUDENT_ORIGIN: ${STUDENT_ORIGIN:-http://localhost:4173}
     depends_on:
       postgres:
         condition: service_healthy

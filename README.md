@@ -45,18 +45,24 @@ After packaging the desktop app, `node scripts/smoke-packaged-pdf.mjs` verifies 
 
 ### Full application
 
-Requirements: Node.js 22.13 or newer, Corepack/pnpm 10.15.0, PostgreSQL, and a configured AI provider (Gemini/OpenAI with a private key, or anonymous Kilo for non-confidential trial lessons). Docker Compose can run the integrated browser/runtime preview.
+Requirements: Node.js 22.13 or newer, Corepack/pnpm 10.15.0, PostgreSQL (the steps below use Docker Compose), and a configured AI provider (Gemini/OpenAI with a private key, or anonymous Kilo for non-confidential trial lessons).
 
 1. Run `corepack pnpm install`.
-2. Copy `.env.example` to `.env`, set `DATABASE_URL`, then run `corepack pnpm --filter @ckadinti/database db:migrate`.
-3. For Google AI Studio, set `AI_PROVIDER=gemini` and `GEMINI_API_KEY`; the default model is `gemini-3.8-flash` (override with `GEMINI_MODEL`). Alternatively choose `AI_PROVIDER=openai` and set `OPENAI_API_KEY`; its default model is `gpt-6-astra` (override with `OPENAI_MODEL`). A configured Gemini key is auto-selected if `AI_PROVIDER` is omitted. Keep secrets out of renderer code and commits.
+2. Run `cp .env.example .env`. The example uses matching local PostgreSQL credentials and a keyless Kilo trial; edit both `POSTGRES_PASSWORD` and the password in `DATABASE_URL` together if you change them.
+3. Run `docker compose up -d postgres`, then `corepack pnpm --filter @ckadinti/database db:migrate`. The migration command reads the root `.env`. PostgreSQL is available to the desktop app at `127.0.0.1:5432`.
 4. Start `corepack pnpm dev:host` and `corepack pnpm dev:student` in separate terminals, then `corepack pnpm dev:desktop`. The browser teacher content API is hosted by the trusted Electron main process at `127.0.0.1:4320`; keep the desktop process open while using that browser authoring flow. The Vite server proxies API/socket traffic to the runtime at port 4310.
+
+For Google AI Studio, set `AI_PROVIDER=gemini` and `GEMINI_API_KEY`; the default model is `gemini-3.8-flash` (override with `GEMINI_MODEL`). Alternatively choose `AI_PROVIDER=openai` and set `OPENAI_API_KEY`; its default model is `gpt-6-astra` (override with `OPENAI_MODEL`). Keep secrets out of renderer code and commits. Kilo needs no key, but its free model can be unavailable or rate-limited.
+
+For local Vite/Electron development, keep the checkout in a directory whose path does not contain `?`. Vite cannot resolve dependencies from such a path. The Docker browser/runtime preview below builds inside containers and works from this checkout path; the Electron teacher app still needs a path without `?`.
+
+If you already have a `teacher_data` Docker volume, changing `POSTGRES_PASSWORD` in `.env` does not change the password stored in that database. Use the existing password in both settings, or reset the development volume only if you no longer need its data.
 
 If the browser teacher page reports that the teacher content service returned HTTP 500, start or restart `corepack pnpm dev:desktop` and leave it running. If the API reports that PostgreSQL is unavailable, start PostgreSQL and apply the database migrations. If generation reports that AI is not configured, set the selected provider's key (`GEMINI_API_KEY` for Gemini or `OPENAI_API_KEY` for OpenAI) in the ignored root `.env` file and restart the desktop app; never paste the key into the browser or commit it.
 
 For LAN students, set `STUDENT_ORIGIN=http://<teacher-LAN-IP>:4173` before starting the runtime and allow the relevant ports through the local firewall. A localhost join URL works only on the teacher computer.
 
-For a Docker preview, set `POSTGRES_PASSWORD` in `.env` and run `docker compose up --build`. Open [the student/teacher app](http://localhost:4173) and [runtime health](http://localhost:4310/health). To create a preview administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.test "Preview Admin"` and save the one-time password printed in that terminal. Accounts are preview-only; do not use real student data.
+For a Docker preview, run `docker compose up --build` after creating `.env`. Open [the browser app](http://localhost:4173) and [runtime health](http://localhost:4310/health). This runs the browser/runtime preview; lesson authoring through the teacher content API also needs the Electron app. To create a preview administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.test "Preview Admin"` and save the one-time password printed in that terminal. Accounts are preview-only; do not use real student data.
 
 ## Checks
 
