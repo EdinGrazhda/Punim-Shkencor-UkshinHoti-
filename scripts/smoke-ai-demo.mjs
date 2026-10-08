@@ -5,7 +5,7 @@ const base = "http://127.0.0.1:4175";
 const questionCount = Number(process.argv[2] ?? 8);
 assert.ok(Number.isInteger(questionCount) && questionCount >= 1 && questionCount <= 200, "Choose a whole count from 1 to 200.");
 async function request(path, init) {
-  const response = await fetch(`${base}${path}`, { ...init, signal: AbortSignal.timeout(120_000 * Math.ceil(questionCount / 8) + 30_000) });
+  const response = await fetch(`${base}${path}`, { ...init, signal: AbortSignal.timeout(4 * 120_000 * Math.ceil(questionCount / 8) + 30_000) });
   const data = await response.json();
   if (!response.ok) throw new Error(`${response.status}: ${data.error ?? "Demo request failed"}`);
   return data;

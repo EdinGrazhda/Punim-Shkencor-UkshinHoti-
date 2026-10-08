@@ -156,6 +156,15 @@ export const PublicQuestion = z.object({
   timeLimitMs: z.number().int().positive(),
 });
 export type PublicQuestion = z.infer<typeof PublicQuestion>;
+
+// Database-free demo only. Deliberately excludes correct answers, explanations,
+// citations and scores; it is not a substitute for an authoritative live session.
+export const StudentQuizPreview = z.object({
+  title: z.string().min(1),
+  questions: z.array(PublicQuestion.pick({ prompt: true, options: true }).extend({ id: z.string().uuid() })).min(1),
+});
+export type StudentQuizPreview = z.infer<typeof StudentQuizPreview>;
+
 export const PublicSessionState = z.object({
   code: z.string().length(6),
   questionCount: z.number().int().positive(),

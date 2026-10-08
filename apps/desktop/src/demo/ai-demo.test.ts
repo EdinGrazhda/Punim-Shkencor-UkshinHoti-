@@ -71,10 +71,12 @@ describe("database-free AI demo", () => {
     expect(generated.status).toBe(201);
     const draft = await generated.json();
     const quizUrl = `${base}/api/teacher-content/v1/quizzes/${draft.quizId}`;
+    const previewUrl = `${base}/api/ai-demo/quizzes/${draft.quizId}/student-preview`;
     const quiz = await fetch(quizUrl, { headers }).then(response => response.json());
     expect(quiz.questions).toHaveLength(3);
     expect(quiz.questions[0].evidence[0].quote).toBe("HTML describes page structure.");
     expect(quiz.status).toBe("needs-review");
+    expect((await fetch(previewUrl)).status).toBe(404);
     expect((await fetch(`${quizUrl}/approve`, { method: "POST", headers })).status).toBe(409);
     for (const question of quiz.questions) {
       const decision = await fetch(`${base}/api/teacher-content/v1/questions/${question.id}/decision`, {
@@ -83,6 +85,20 @@ describe("database-free AI demo", () => {
       expect(decision.status).toBe(200);
     }
     expect((await fetch(`${quizUrl}/approve`, { method: "POST", headers })).status).toBe(200);
+    const previewResponse = await fetch(previewUrl);
+    expect(previewResponse.status).toBe(200);
+    expect(previewResponse.headers.get("cache-control")).toBe("no-store");
+    const preview = await previewResponse.json();
+    expect(Object.keys(preview).sort()).toEqual(["questions", "title"]);
+    expect(preview.questions).toHaveLength(3);
+    for (const question of preview.questions) {
+      expect(Object.keys(question).sort()).toEqual(["id", "options", "prompt"]);
+      expect(question.options).toEqual(["HTML", "CSS"]);
+    }
+    expect((await fetch(previewUrl, { headers: { Origin: "https://untrusted.example" } })).status).toBe(403);
+    expect((await fetch(`${base}/api/teacher-content/v1/quizzes/${draft.quizId}`)).status).toBe(401);
+    const reloaded = await fetch(quizUrl, { headers }).then(response => response.json());
+    expect(reloaded.status).toBe("approved");
     const question = quiz.questions[0];
     const saved = await fetch(`${base}/api/teacher-content/v1/questions/${question.id}`, {
       method: "PATCH", headers, body: JSON.stringify({
@@ -93,6 +109,7 @@ describe("database-free AI demo", () => {
     expect(saved.status).toBe(200);
     const edited = await fetch(quizUrl, { headers }).then(response => response.json());
     expect(edited.status).toBe("needs-review");
+    expect((await fetch(previewUrl)).status).toBe(404);
     expect(edited.questions[0].reviewStatus).toBe("needs-review");
     const fresh = await start();
     expect(await fetch(`${fresh.base}/api/teacher-content/v1/lessons`, { headers: fresh.headers }).then(response => response.json())).toEqual([]);

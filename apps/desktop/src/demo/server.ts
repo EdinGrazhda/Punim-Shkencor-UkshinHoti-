@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createTeacherContentApi } from "../main/services/teacher-content-api.js";
 import { createMemoryContentRepositories } from "./memory-repositories.js";
+import { quizIdSchema, StudentQuizPreview } from "@ckadinti/contracts";
 
 export function createAiDemoHandler(port: number) {
   const token = randomBytes(32).toString("hex");
@@ -28,6 +29,25 @@ export function createAiDemoHandler(port: number) {
       return;
     }
     const pathname = new URL(request.url ?? "/", origins[0]).pathname;
+    const previewMatch = pathname.match(/^\/api\/ai-demo\/quizzes\/([^/]+)\/student-preview$/u);
+    if (previewMatch && request.method === "GET") {
+      const id = quizIdSchema.safeParse(previewMatch[1]);
+      const quiz = id.success ? await repositories.quizzes.getForReview(id.data) : null;
+      if (!quiz || quiz.status !== "approved" || !quiz.questions.length || quiz.questions.some(question => question.reviewStatus !== "approved")) {
+        json(reply, 404, { error: "This preview is unavailable. Ask the teacher to approve the quiz again. Demo quizzes disappear after a server restart." });
+        return;
+      }
+      // Explicit whitelist plus a shared public contract: never serialize the
+      // teacher review object or an approved snapshot containing the answer key.
+      json(reply, 200, StudentQuizPreview.parse({
+        title: quiz.title,
+        questions: quiz.questions.map(question => ({
+          id: question.id, prompt: question.prompt,
+          options: question.options.map(option => option.text),
+        })),
+      }));
+      return;
+    }
     if (pathname === "/" && request.method === "GET") {
       reply.writeHead(302, { Location: "/ai-demo.html" });
       reply.end();

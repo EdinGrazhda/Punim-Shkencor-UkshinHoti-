@@ -20,6 +20,14 @@ For a temporary PDF-to-quiz test, set `AI_PROVIDER=kilo` and `KILO_MODEL=nvidia/
 
 The demo reuses the integrated teacher quiz studio and the real import/generation/evidence-validation services. Download the sample HTML lesson PDF from the page (or upload your own TXT, Markdown, text/scanned PDF or DOCX), enter a question count, generate, and review the answers and exact source quotes. Lessons and drafts live in memory and disappear when the demo server stops; live classroom hosting is disabled. Normal app persistence remains PostgreSQL.
 
+#### Try approval and the student preview
+
+1. Open **Review**, inspect each question and its evidence, then click **Approve question**. A visible confirmation and an **Approved** button show that the approval was saved.
+2. After every question is approved, click **Save and approve quiz**. The saved confirmation offers **Open student preview**; the quiz library also retains a preview link after refreshing the page.
+3. Open that link to try the questions and select answers in a separate student view. The public preview receives only the title, question IDs, prompts and choices—no answer key, explanations or scores. Editing a saved question invalidates approval and blocks new preview requests until re-approval.
+
+This is a **same-computer, memory-only demo**: saving survives browser refresh, not a server restart. Student selections stay in that tab and are not submitted, graded or persisted. It is not a LAN lobby or live classroom game. PostgreSQL persistence and authoritative classroom play remain part of the full-app phase. After changing shared contracts, rebuild `@ckadinti/contracts` and restart the demo before testing; a restart clears its temporary content.
+
 #### PDF support and custom question counts
 
 - Text PDFs, scanned pages, and mixed text/image pages use the same import flow. Image-containing pages are rendered and read locally by Tesseract; a digital heading does not hide a scanned body. English OCR data is bundled for offline recognition. Extracted lesson text is still sent to your selected AI provider for generation.
@@ -31,7 +39,7 @@ The demo reuses the integrated teacher quiz studio and the real import/generatio
 
 Kilo's anonymous free models have rate and availability limits. The adapter accepts only `:free` model IDs and never sends your Gemini/OpenAI keys to Kilo. Free providers may log lesson text and generated content or use it to improve their services; use non-confidential lessons. See [Kilo authentication](https://kilo.ai/docs/gateway/authentication) and [free model data handling](https://kilo.ai/docs/gateway/models-and-providers). Other free-tier providers in the [provider list](https://github.com/mnfst/awesome-free-llm-apis) generally issue keys through your own account.
 
-For an opt-in live check with this demo running and Kilo selected, run `node scripts/smoke-ai-demo.mjs 9` (omit the number for eight). It uploads the bundled HTML PDF, requests the exact count, and verifies answers and original-source citation spans. This check calls the external free provider; ordinary unit tests use mocked AI responses and local OCR fixtures. PDF line-wrap whitespace is tolerated, while changed evidence wording remains invalid. The final live nine-question/two-batch run passed on 2026-10-08. A batch gets one validation-repair attempt; provider/network failures can still require retrying.
+For an opt-in live check with this demo running and Kilo selected, run `node scripts/smoke-ai-demo.mjs 9` (omit the number for eight). It uploads the bundled HTML PDF, requests the exact count, and verifies answers and original-source citation spans. This check calls the external free provider; ordinary unit tests use mocked AI responses and local OCR fixtures. PDF line-wrap whitespace is tolerated, while changed evidence wording remains invalid. The live nine-question/two-batch run passed again on 2026-10-08 after the count-recovery fix. Short responses retain validated questions and automatically request the missing ones; surplus questions are discarded. Duplicate/unsupported questions are replaced, not accepted. Each planned batch allows at most four calls, with top-ups of at most four questions. The exact requested total is required before saving; provider/network failures still fail fast and may require retrying.
 
 After packaging the desktop app, `node scripts/smoke-packaged-pdf.mjs` verifies its actual PDF/OCR dependency files (Windows x64 output by default; pass another package's `resources` directory as an argument). That check passed on 2026-10-08, alongside the local workspace tests and type checking. PostgreSQL-backed acceptance and multi-device classroom testing remain separate.
 

@@ -88,3 +88,22 @@
 @media(max-width:800px){.teacher-studio-grid{grid-template-columns:1fr}.teacher-studio-card{padding:18px}.teacher-quiz-row{grid-template-columns:minmax(0,1fr) auto}.teacher-quiz-row>.ui-button{grid-row:2}.teacher-review-meta{grid-template-columns:1fr 130px}}
 @media(max-width:520px){.teacher-review-question{padding:12px}.teacher-quiz-row{grid-template-columns:1fr auto}.teacher-quiz-row>.ui-button{font-size:10px;padding:0 9px}.teacher-review-meta{grid-template-columns:1fr}.teacher-review-actions{justify-content:flex-start}.teacher-review-actions .ui-button{font-size:10px;padding:0 9px}.teacher-review-footer{justify-content:flex-start}.teacher-review-footer .question-timer-setting{width:100%}}
  .answer-locked-note{margin:16px 0 0;padding:12px 14px;border-radius:11px;background:#eef1ff;color:#374898;font-size:12px;font-weight:800;line-height:1.45}
+
+/* Approval feedback stays visible while reviewing a long quiz. */
+.teacher-studio-feedback{position:fixed;right:24px;bottom:24px;z-index:1000;width:min(480px,calc(100vw - 32px));pointer-events:none}
+.teacher-studio-feedback .teacher-studio-message{pointer-events:auto;margin:8px 0 0;box-shadow:0 8px 30px #17204426;border:1px solid currentColor;line-height:1.5}
+.teacher-studio-feedback button{align-self:flex-start;flex:none;cursor:pointer}
+.teacher-review-question .teacher-question-confirmation{display:flex;align-items:center;gap:7px;color:#177458;font-weight:700}
+.teacher-quiz-saved{margin-top:20px;padding:18px;border:1px solid #bee4cf;border-radius:12px;background:#eafaf3}
+.teacher-quiz-saved strong{display:flex;align-items:center;gap:7px;color:#177458}
+.teacher-quiz-saved a,.teacher-quiz-row a{text-decoration:none}
+.student-quiz-preview{max-width:760px;margin:0 auto;padding:32px 20px;color:#172044}
+.student-quiz-preview>p{color:#5f6d89;line-height:1.6;margin-bottom:24px}
+.student-quiz-preview .ui-card{padding:24px}
+.student-quiz-preview fieldset{border:0;padding:0;margin:20px 0}
+.student-quiz-preview legend{font-size:21px;font-weight:750;line-height:1.5;margin-bottom:18px}
+.student-preview-option{display:flex;gap:12px;align-items:flex-start;border:1px solid #dce2ed;border-radius:12px;padding:15px;margin:10px 0;cursor:pointer}
+.student-preview-option:has(input:checked){background:#eef1ff;border-color:#6378eb}
+.student-preview-option input{margin-top:4px;accent-color:#4b61d1}
+.student-preview-navigation{display:flex;justify-content:space-between;gap:12px}
+@media(max-width:520px){.teacher-studio-feedback{right:16px;bottom:16px}.student-quiz-preview .ui-card{padding:18px}.student-quiz-preview legend{font-size:18px}}

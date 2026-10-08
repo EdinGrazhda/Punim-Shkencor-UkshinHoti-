@@ -11,6 +11,7 @@
 - [x] OpenAI Responses API, Google Gemini and anonymous Kilo free-model generation with structured validation, source-quote evidence and mandatory teacher review. Live PDF generation succeeded through Kilo on 2026-10-07; Gemini was blocked by regional free-tier/billing eligibility and OpenAI still needs local verification.
 - [x] Opt-in `dev:ai-demo` reuses the browser quiz studio and actual content services with temporary memory storage on `127.0.0.1:4175`, without PostgreSQL or an admin login. Imported the sample HTML PDF and generated eight questions with correct-answer and original-source-span checks. PDF line-wrapping differences are accepted while changed citation wording remains rejected.
 - [x] Teacher review actions: edit, approve/reject, add, duplicate, delete, reorder, bulk approve, and per-question regenerate.
+- [x] Demo-first approval feedback: visible question confirmations, saved quiz status, and a separate local student preview for approved quizzes. The shared public preview contract exposes only title/question IDs/prompts/choices. Demo saves survive page refresh only; server restart clears them. Student choices are neither graded nor persisted, and live/LAN hosting is not enabled by this preview.
 - [x] Approved quiz export through the shared `GameSnapshot` contract, including teacher-reviewed explanations.
 - [x] Local session creation and native desktop host controls/reports.
 - [x] Edin's student/teacher/admin/projector browser UI and Fastify/Socket.IO runtime selectively integrated on Arron.
@@ -24,8 +25,10 @@
 - Local workspace tests passed, including desktop OCR/generation regressions and runtime privacy/scoring/timer/REST smoke tests. Workspace type checking passed.
 - Browser production build passed with the existing large-chunk warning.
 - Packaged dependency smoke check passed: PDF.js, native canvas, Tesseract worker/WASM, and bundled English OCR data loaded from the packaged `app.asar.unpacked` directory, not workspace dependencies.
-- Final live database-free demo check generated exactly nine questions across two batches and verified one correct answer per question plus original-source evidence spans. One bounded retry can repair citation/count/duplicate errors without relaxing validation.
-- These checks do not replace the pending real PostgreSQL, LAN/multi-device, full classroom acceptance, and remote CI checks below. No merge or push was performed.
+- Live database-free demo check generated exactly nine questions across two planned batches and verified one correct answer per question plus original-source evidence spans. Repeated successfully after the count-recovery fix: validated questions survive undersized responses, missing questions get smaller top-up requests, and extras are discarded. Recovery is bounded to four calls per planned batch; no partial quiz is saved. Generation/planning tests (36) and desktop type checking passed, covering under/over-counts, duplicates, invalid citations and provider failure during recovery.
+- Approval/preview regression coverage verifies approval gating, public-field whitelisting, teacher authentication, cross-origin blocking, saved review reloads and re-approval after edits. Desktop demo/content tests (6) and shared contract tests (4) passed; student and desktop type checks passed.
+- Live demo browser verification showed per-question confirmations, saved quiz confirmation and the approved student view; the two-question sample reached the preview-completed screen without displaying scores or correctness. Student production build passed (existing large-chunk warning); the local code-only Graphify index was refreshed. The demo server required a restart after rebuilding the new shared contract.
+- The pre-approval-feature snapshot was committed and pushed to `Arron` as `06f068d` on 2026-10-08. The new demo approval/student-preview work is local pending its own commit. No main/Edin merge or push was performed. These checks do not replace the pending real PostgreSQL, LAN/multi-device, full classroom acceptance, and remote CI checks below.
 
 ### Integration checklist
 

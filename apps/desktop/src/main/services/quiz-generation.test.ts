@@ -128,15 +128,81 @@ describe("lesson-to-quiz AI generation", () => {
     expect(repo.generationJobs.updateStatus).toHaveBeenCalledWith("job-1", "failed", expect.any(String), null);
   });
 
-  it("rejects duplicate prompts and wrong batch counts before persistence", async () => {
+  it("stops repeated duplicate responses after a bounded recovery without saving a partial quiz", async () => {
     vi.stubEnv("AI_PROVIDER", "kilo");
     const body = output(lessonText);
     body.questions.push(body.questions[0]!);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(body) } }] }))));
+    const request = vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(body) } }] })));
+    vi.stubGlobal("fetch", request);
     const repo = repositories();
     await expect(generateQuizFromLesson(lessonId, 2, repo)).rejects.toThrow(/repeated a question/);
-    await expect(generateQuizFromLesson(lessonId, 3, repo)).rejects.toThrow(/different number/);
+    expect(request).toHaveBeenCalledTimes(4);
     expect(repo.quizzes.create).not.toHaveBeenCalled();
+    expect(repo.questions.create).not.toHaveBeenCalled();
+    expect(repo.generationJobs.updateStatus).toHaveBeenCalledWith("job-1", "failed", expect.stringContaining("1 of 2"), null);
+  });
+
+  it.each([[3, 2, [3, 1]], [8, 3, [8, 4, 2]]] as const)("fills a short response for %i requested questions without discarding validated work", async (count, returned, expectedSizes) => {
+    vi.stubEnv("AI_PROVIDER", "kilo");
+    let serial = 0;
+    const sizes: number[] = [];
+    const inputs: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const input = JSON.parse(String(init?.body)).messages[1].content;
+      inputs.push(input);
+      const size = Number(input.match(/Create exactly (\d+) questions/)[1]);
+      sizes.push(size);
+      const body = output(lessonText);
+      body.questions = Array.from({ length: Math.min(size, returned) }, () => ({ ...body.questions[0]!, prompt: `Distinct fact ${++serial}?` }));
+      return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(body) } }] }));
+    }));
+    const repo = repositories();
+    const result = await generateQuizFromLesson(lessonId, count, repo);
+    expect(result.questionCount).toBe(count);
+    expect(sizes).toEqual(expectedSizes);
+    expect(inputs[1]).toContain("Distinct fact 1?");
+    expect(inputs[1]).toContain("NEW questions only");
+    expect(repo.questions.create).toHaveBeenCalledTimes(count);
+  });
+
+  it("takes only the requested number from an oversized valid response", async () => {
+    vi.stubEnv("AI_PROVIDER", "kilo");
+    const body = output(lessonText);
+    body.questions = Array.from({ length: 5 }, (_, i) => ({ ...body.questions[0]!, prompt: `Distinct fact ${i}?` }));
+    const request = vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(body) } }] })));
+    vi.stubGlobal("fetch", request);
+    const repo = repositories();
+    expect((await generateQuizFromLesson(lessonId, 3, repo)).questionCount).toBe(3);
+    expect(request).toHaveBeenCalledOnce();
+    expect(repo.questions.create).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps valid questions but replaces unsupported evidence and duplicates", async () => {
+    vi.stubEnv("AI_PROVIDER", "kilo");
+    const body = output(lessonText);
+    body.questions.push(body.questions[0]!, { ...body.questions[0]!, prompt: "Second fact?", evidence: [{ blockOrdinal: 0, quote: "Invented fact" }] });
+    const repaired = output(lessonText);
+    repaired.questions[0]!.prompt = "Second fact?";
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(++calls === 1 ? body : repaired) } }] }))));
+    const repo = repositories();
+    expect((await generateQuizFromLesson(lessonId, 2, repo)).questionCount).toBe(2);
+    expect(calls).toBe(2);
+    expect(repo.questions.create).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(repo.questions.create).mock.calls) expect(call[2]).toEqual([{ lessonBlockId: blockId, quoteStart: 0, quoteEnd: lessonText.length }]);
+  });
+
+  it("does not save retained questions if a top-up request hits a provider error", async () => {
+    vi.stubEnv("AI_PROVIDER", "kilo");
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => ++calls === 1
+      ? new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(output(lessonText)) } }] }))
+      : new Response(JSON.stringify({ error: { message: "Rate limit" } }), { status: 429 })));
+    const repo = repositories();
+    await expect(generateQuizFromLesson(lessonId, 3, repo)).rejects.toThrow(/429/);
+    expect(calls).toBe(2);
+    expect(repo.quizzes.create).not.toHaveBeenCalled();
+    expect(repo.questions.create).not.toHaveBeenCalled();
   });
 
   it("maps PDF line wrapping to original source offsets without rewriting the evidence", async () => {

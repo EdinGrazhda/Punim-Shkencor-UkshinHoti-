@@ -6,7 +6,8 @@ import { planQuizGeneration } from "./generation-plan.js";
 type Repositories = ContentRepositories;
 type Lesson = NonNullable<Awaited<ReturnType<Repositories["lessons"]["get"]>>>;
 
-const PROMPT_VERSION = "lesson-quiz-v2-batched";
+const PROMPT_VERSION = "lesson-quiz-v3-count-recovery";
+const MAX_BATCH_ATTEMPTS = 4;
 const responseSchema = {
   type: "object",
   additionalProperties: false,
@@ -197,31 +198,37 @@ export async function generateQuizFromLesson(lessonId: string, questionCount: nu
     const prepared: Array<ReturnType<typeof prepareQuestion>> = [];
     const prompts = new Set<string>();
     for (const [index, batch] of plan.batches.entries()) {
-      const avoid = prepared.length ? `\nDo not repeat these earlier question prompts: ${JSON.stringify(prepared.map(item => item.question.prompt.slice(0, 120)))}` : "";
+      const target = prepared.length + batch.questionCount;
       let feedback = "";
-      // One bounded repair for citation/count/duplicate mistakes; provider and
-      // network errors are not blindly retried. Never relax evidence validation.
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const next = await requestQuizOutput(provider, apiKey, model, `Create exactly ${batch.questionCount} questions in the lesson language (${lesson.language === "auto" ? "detect the source language; use its ISO language code" : lesson.language}). Lesson title: ${lesson.title}\nBatch ${index + 1} of ${plan.batches.length}.${avoid}${feedback}\n\n${batch.source}`, "Create a classroom quiz using only the supplied lesson. Questions must be distinct; do not invent extra facts to reach the count.");
-        try {
-          if (next.questions.length !== batch.questionCount) throw new Error("AI returned a different number of questions than requested. No draft was saved; try again or request fewer questions.");
-          const batchPrompts = new Set(prompts);
-          const accepted = next.questions.map(question => {
+      let validationIssue = "The provider returned too few usable questions.";
+      // Retain validated work in memory, request only missing questions and
+      // ignore surplus items. Never persist a partial quiz or weaken evidence.
+      // At most four provider calls per planned batch; network errors fail fast.
+      for (let attempt = 0; attempt < MAX_BATCH_ATTEMPTS && prepared.length < target; attempt++) {
+        const missing = target - prepared.length;
+        const requested = attempt === 0 ? missing : Math.min(missing, 4);
+        const avoid = prepared.length ? `\nDo not repeat these already accepted question prompts: ${JSON.stringify(prepared.map(item => item.question.prompt))}` : "";
+        const next = await requestQuizOutput(provider, apiKey, model, `Create exactly ${requested} questions in the lesson language (${lesson.language === "auto" ? "detect the source language; use its ISO language code" : lesson.language}). Lesson title: ${lesson.title}\nBatch ${index + 1} of ${plan.batches.length}.${avoid}${feedback}\n\n${batch.source}`, "Create a classroom quiz using only the supplied lesson. Questions must be distinct; do not invent extra facts to reach the count.");
+        for (const question of next.questions) {
+          if (prepared.length === target) break;
+          try {
             const key = question.prompt.normalize("NFKC").toLowerCase().replace(/[\p{P}\p{Z}\s]+/gu, " ").trim();
-            if (batchPrompts.has(key)) throw new Error("AI repeated a question. No draft was saved; request fewer questions or use a more detailed lesson.");
-            batchPrompts.add(key);
-            return prepareQuestion(lesson, question);
-          });
-          prepared.push(...accepted);
-          batchPrompts.forEach(prompt => prompts.add(prompt));
-          output ??= next;
-          break;
-        } catch (error) {
-          if (attempt === 1) throw error;
-          feedback = `\nYour previous batch failed validation: ${error instanceof Error ? error.message : "Invalid questions"} Recreate the complete batch, copying evidence verbatim from its identified block.`;
+            if (prompts.has(key)) throw new Error("AI repeated a question.");
+            const accepted = prepareQuestion(lesson, question);
+            prepared.push(accepted);
+            prompts.add(key);
+            output ??= next;
+          } catch (error) {
+            validationIssue = error instanceof Error ? error.message : "Invalid question.";
+          }
         }
+        feedback = `\nPrevious response contained ${next.questions.length} questions; ${target - prepared.length} more valid, distinct questions are still needed in this batch. Generate NEW questions only, not the complete quiz. Validation feedback: ${validationIssue} Copy evidence verbatim from its identified block.`;
+      }
+      if (prepared.length !== target) {
+        throw new Error(`Could only validate ${prepared.length} of ${questionCount} requested questions after bounded automatic recovery. ${validationIssue} No draft was saved. Try fewer questions or a lesson with more distinct source facts.`);
       }
     }
+    if (prepared.length !== questionCount) throw new Error("The generated quiz did not reach the requested question count. No draft was saved.");
     const checkedQuiz = quizGenerationResultSchema.safeParse({ ...output, questions: prepared.map(({ question }) => question) });
     if (!checkedQuiz.success) throw new Error("Generated quiz did not pass the shared quiz validation rules.");
     const quiz = await repositories.quizzes.create({ lessonId, title: checkedQuiz.data.title, language: checkedQuiz.data.language, difficulty: checkedQuiz.data.difficulty });

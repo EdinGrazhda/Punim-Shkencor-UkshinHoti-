@@ -17,7 +17,7 @@ function AiDemo() {
   return <main style={{ maxWidth: 1400, margin: "0 auto", padding: "24px" }}>
     <div className="teacher-studio-message" role="status">
       <div><strong>AI quiz demo · no database or sign-in required</strong>
-        <p>Lessons and quizzes stay in memory until this demo server stops. Live classroom sessions are unavailable here.</p>
+        <p>Lessons and quizzes stay in memory until this demo server stops. Approve every question, then save and approve the quiz to open a student preview on this computer. Live classroom sessions are unavailable here.</p>
         {session?.provider === "kilo" && <p>Using Kilo’s free AI endpoint. Lesson text is sent to the provider and may be logged or used to improve its services. Use non-confidential sample lessons.</p>}
         <a href="/api/ai-demo/sample" download="CkaDinTi_HTML_Lesson.pdf">Download the sample HTML lesson PDF</a>
       </div>
