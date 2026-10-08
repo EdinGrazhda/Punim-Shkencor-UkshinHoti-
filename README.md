@@ -1,159 +1,78 @@
-# graphify
+# CkaDinTi
 
-> The Docker files in this checkout are for the separate TypeScript classroom runtime under `apps/` and `packages/`. They do not package the Python Graphify CLI.
+Desktop-first, local-first AI classroom quiz platform backed by PostgreSQL.
 
-## CkaDinTi classroom preview
+Read [AGENTS.md](AGENTS.md) for repository rules and [docs/TEAM_TASKS.md](docs/TEAM_TASKS.md) for branch ownership and MVP acceptance criteria.
 
-The student, teacher, admin, and projector interfaces live in `apps/student`; the Fastify/Socket.IO game runtime lives in `packages/runtime-host`. Start the app and PostgreSQL with `docker compose up -d --build`, then open the [landing page](http://localhost:4173/). Teachers sign in to create the five-question Cyber Security Basics sample, share its code or QR link, start the game, reveal answers, and end it. Students enter their name, then the code—no account required. The runtime API is available at `http://localhost:4310/api/v1`.
+## Current integrated preview
 
-There is no public teacher registration. To create the first administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.com "School Admin"` and save the randomly generated password shown once in the terminal. Then sign in at [Admin sign in](http://localhost:4173/admin/login). The admin panel can create teacher accounts and see the teacher directory and current games. Each new teacher receives a generated temporary password, shown once to the admin; teachers must replace it on their first sign-in at [Teacher sign in](http://localhost:4173/login). Do not reuse the example admin email for a real deployment.
+The teacher desktop app uses Electron, React, and TypeScript. It imports TXT, Markdown, text/scanned PDF, and DOCX lessons, normalizes them into evidence blocks, and persists them with PostgreSQL/Drizzle. A teacher can generate a quiz draft through the selected OpenAI, Gemini or Kilo API, review/edit questions and evidence, approve the quiz, and export an approved runtime snapshot. The review screen supports add, duplicate, delete, reorder, bulk approval, and per-question regeneration.
 
-Run `pnpm typecheck` and `pnpm test` for workspace checks. Admin/teacher accounts and login sessions persist in the Docker PostgreSQL volume (`teacher_data`); live games and scores are still in memory and disappear when the runtime container restarts. The default PostgreSQL password in `docker-compose.yml` is for local development only: set `POSTGRES_PASSWORD` before sharing or deploying this stack. Arron’s teacher workflow is now present in the same workspace, but its approved-quiz handoff is not yet connected to Edin’s live runtime. The Python Graphify project below is separate from this classroom app.
+The Arron branch now includes a local integrated copy of Edin's student/teacher/admin/projector browser UI and Fastify/Socket.IO runtime. The integrated browser teacher workspace also uses Arron's lesson import, AI draft, teacher review, and approved-snapshot flow to create a game. Runtime sessions, accepted answers, events, and score state are stored in PostgreSQL and restored after a host restart. The teacher can recover the latest host session and view completed-session history and reports. The separate desktop host view still reports sessions created during its current run.
 
-### Teacher desktop workflow
+This is still an integration preview, not yet merge-ready for `main`: the runtime persistence and migration changes have unit/restart coverage, but have not been exercised against a real PostgreSQL test database in this environment. Full CI and classroom acceptance checks are also pending. The Arron integration closes the early-answer feedback and score-changing reward gaps: correctness and scores are withheld until reveal, and rewards have been removed. See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) and [docs/CROSS_BRANCH_ALIGNMENT.md](docs/CROSS_BRANCH_ALIGNMENT.md).
 
-The Electron teacher app in `apps/desktop` imports TXT, Markdown, text-based PDF, and DOCX lessons and persists them through PostgreSQL and Drizzle. It supports evidence-backed AI quiz generation, mandatory teacher review, editing and reordering questions, and export to the shared runtime `GameSnapshot` contract.
+## Local development
 
-For local development, install dependencies with `corepack pnpm install`, copy `.env.example` to `.env`, configure `DATABASE_URL`, and apply migrations with `corepack pnpm --filter @ckadinti/database db:migrate`. Add `OPENAI_API_KEY` only when AI generation is needed, then start the teacher app with `corepack pnpm dev:desktop`. Never commit `.env` or API keys.
+### Try AI generation without PostgreSQL
 
-### Agent automation
+For a temporary PDF-to-quiz test, set `AI_PROVIDER=kilo` and `KILO_MODEL=nvidia/nemotron-3-super-120b-a12b:free` in the ignored root `.env`, then run `corepack pnpm dev:ai-demo`. Open [the AI quiz demo](http://127.0.0.1:4175/ai-demo.html). No database, Electron process, login, or API key is required for this mode.
 
-`AGENTS.md` tells Codex to query Graphify before broad code searches and to use the RTK command policy in `RTK.md`. Graphify commands run natively; RTK wraps ordinary repository commands to reduce noisy output. These are agent instructions, not a shell-wide rewrite of commands you type yourself.
+The demo reuses the integrated teacher quiz studio and the real import/generation/evidence-validation services. Download the sample HTML lesson PDF from the page (or upload your own TXT, Markdown, text/scanned PDF or DOCX), enter a question count, generate, and review the answers and exact source quotes. Lessons and drafts live in memory and disappear when the demo server stops; live classroom hosting is disabled. Normal app persistence remains PostgreSQL.
 
-Install the Codex skill with `graphify install --platform codex`. Install Graphify's watcher dependency with `pipx inject graphifyy watchdog` (and its optional SQL parser with `pipx inject graphifyy tree-sitter-sql`), then run `scripts/install-graphify-watch.sh`. The user service runs `graphify update .` after saved repository changes and once at startup, so edits made while it was stopped are caught up. Check it with `systemctl --user status ckadinti-graphify.service`; logs are available through `journalctl --user -u ckadinti-graphify.service`. You can also run `graphify update .` manually. This command refreshes the code graph without an API key; document and image semantics still need a separate LLM-backed Graphify update.
+#### Try approval and the student preview
 
-[![CI](https://github.com/safishamsi/graphify/actions/workflows/ci.yml/badge.svg?branch=v1)](https://github.com/safishamsi/graphify/actions/workflows/ci.yml)
+1. Open **Review**, inspect each question and its evidence, then click **Approve question**. A visible confirmation and an **Approved** button show that the approval was saved.
+2. After every question is approved, click **Save and approve quiz**. The saved confirmation offers **Open student preview**; the quiz library also retains a preview link after refreshing the page.
+3. Open that link to try the questions and select answers in a separate student view. The public preview receives only the title, question IDs, prompts and choices—no answer key, explanations or scores. Editing a saved question invalidates approval and blocks new preview requests until re-approval.
 
-**A Claude Code skill.** Type `/graphify` in Claude Code - it reads your files, builds a knowledge graph, and gives you back structure you didn't know was there.
+This is a **same-computer, memory-only demo**: saving survives browser refresh, not a server restart. Student selections stay in that tab and are not submitted, graded or persisted. It is not a LAN lobby or live classroom game. PostgreSQL persistence and authoritative classroom play remain part of the full-app phase. After changing shared contracts, rebuild `@ckadinti/contracts` and restart the demo before testing; a restart clears its temporary content.
 
-Fully multimodal. Drop in code, PDFs, markdown, screenshots, diagrams, whiteboard photos, even images in other languages - graphify uses Claude vision to extract concepts and relationships from all of it and connects them into one graph.
+#### PDF support and custom question counts
 
-> Andrej Karpathy keeps a `/raw` folder where he drops papers, tweets, screenshots, and notes. graphify is the answer to that problem - 71.5x fewer tokens per query vs reading the raw files, persistent across sessions, honest about what it found vs guessed.
+- Text PDFs, scanned pages, and mixed text/image pages use the same import flow. Image-containing pages are rendered and read locally by Tesseract; a digital heading does not hide a scanned body. English OCR data is bundled for offline recognition. Extracted lesson text is still sent to your selected AI provider for generation.
+- Other scan languages use `PDF_OCR_LANGUAGES` (for example `eng+sqi`) and `PDF_OCR_DATA_PATH`, a local folder containing **all** selected `<language>.traineddata.gz` packs. Restart the app/demo after configuration changes. Embedded PDF text does not require an OCR language pack. `PDF_OCR_FORCE=true` also reads pages whose embedded text layer is unusable.
+- Enter any whole count from **1 to 200** in either teacher UI. The service generates batches of at most eight, validates the exact total, rejects repeated prompts, and saves only after all AI batches pass validation. A short lesson may not support hundreds of distinct questions; use fewer questions or richer material if the model cannot meet the count.
+- Limits: **50 MB/file, 500 PDF pages, 2,000,000 extracted characters**, and 90 seconds of OCR recognition per page. All imported blocks are retained (the old 500-block truncation is removed). Long source blocks are split while preserving citation offsets.
+- Long-document generation distributes bounded source excerpts across the document. It can sample sections rather than cover every page; the result displays a sampling notice. It is not a promise of exhaustive textbook coverage. Regeneration prioritizes the question's existing evidence blocks.
+- Damaged/password-protected PDFs require a fresh/unlocked copy. Blurry scans, handwriting, equations, diagrams without readable text, and complex layouts are not guaranteed; always inspect extracted evidence and teacher-review the answers. No tool can reliably read literally every PDF.
 
-```
-/graphify .                        # works on any folder - your codebase, notes, papers, anything
-```
+Kilo's anonymous free models have rate and availability limits. The adapter accepts only `:free` model IDs and never sends your Gemini/OpenAI keys to Kilo. Free providers may log lesson text and generated content or use it to improve their services; use non-confidential lessons. See [Kilo authentication](https://kilo.ai/docs/gateway/authentication) and [free model data handling](https://kilo.ai/docs/gateway/models-and-providers). Other free-tier providers in the [provider list](https://github.com/mnfst/awesome-free-llm-apis) generally issue keys through your own account.
 
-```
-graphify-out/
-├── graph.html       interactive graph - click nodes, search, filter by community
-├── obsidian/        open as Obsidian vault
-├── wiki/            Wikipedia-style articles for agent navigation (--wiki)
-├── GRAPH_REPORT.md  god nodes, surprising connections, suggested questions
-├── graph.json       persistent graph - query weeks later without re-reading
-└── cache/           SHA256 cache - re-runs only process changed files
-```
+For an opt-in live check with this demo running and Kilo selected, run `node scripts/smoke-ai-demo.mjs 9` (omit the number for eight). It uploads the bundled HTML PDF, requests the exact count, and verifies answers and original-source citation spans. This check calls the external free provider; ordinary unit tests use mocked AI responses and local OCR fixtures. PDF line-wrap whitespace is tolerated, while changed evidence wording remains invalid. The live nine-question/two-batch run passed again on 2026-10-08 after the count-recovery fix. Short responses retain validated questions and automatically request the missing ones; surplus questions are discarded. Duplicate/unsupported questions are replaced, not accepted. Each planned batch allows at most four calls, with top-ups of at most four questions. The exact requested total is required before saving; provider/network failures still fail fast and may require retrying.
 
-## Install
+After packaging the desktop app, `node scripts/smoke-packaged-pdf.mjs` verifies its actual PDF/OCR dependency files (Windows x64 output by default; pass another package's `resources` directory as an argument). That check passed on 2026-10-08, alongside the local workspace tests and type checking. PostgreSQL-backed acceptance and multi-device classroom testing remain separate.
 
-**Requires:** [Claude Code](https://claude.ai/code) and Python 3.10+
+### Full application
 
-```bash
-pip install graphifyy && graphify install
-```
+Requirements: Node.js 22.13 or newer, Corepack/pnpm 10.15.0, PostgreSQL, and a configured AI provider (Gemini/OpenAI with a private key, or anonymous Kilo for non-confidential trial lessons). Docker Compose can run the integrated browser/runtime preview.
 
-> The PyPI package is temporarily named `graphifyy` while the `graphify` name is being reclaimed. The CLI and skill command are still `graphify`.
+1. Run `corepack pnpm install`.
+2. Copy `.env.example` to `.env`, set `DATABASE_URL`, then run `corepack pnpm --filter @ckadinti/database db:migrate`.
+3. For Google AI Studio, set `AI_PROVIDER=gemini` and `GEMINI_API_KEY`; the default model is `gemini-3.8-flash` (override with `GEMINI_MODEL`). Alternatively choose `AI_PROVIDER=openai` and set `OPENAI_API_KEY`; its default model is `gpt-6-astra` (override with `OPENAI_MODEL`). A configured Gemini key is auto-selected if `AI_PROVIDER` is omitted. Keep secrets out of renderer code and commits.
+4. Start `corepack pnpm dev:host` and `corepack pnpm dev:student` in separate terminals, then `corepack pnpm dev:desktop`. The browser teacher content API is hosted by the trusted Electron main process at `127.0.0.1:4320`; keep the desktop process open while using that browser authoring flow. The Vite server proxies API/socket traffic to the runtime at port 4310.
 
-> **Windows:** If `graphify` is not recognized after install, add the Python Scripts folder to your PATH: `%APPDATA%\Python\Python3xx\Scripts` (replace `3xx` with your Python version, e.g. `313`). Or use `pipx install graphifyy` which handles PATH automatically.
-> **macOS (externally managed):** Use `pipx install graphifyy` if `pip install` fails with an "externally-managed-environment" error.
+If the browser teacher page reports that the teacher content service returned HTTP 500, start or restart `corepack pnpm dev:desktop` and leave it running. If the API reports that PostgreSQL is unavailable, start PostgreSQL and apply the database migrations. If generation reports that AI is not configured, set the selected provider's key (`GEMINI_API_KEY` for Gemini or `OPENAI_API_KEY` for OpenAI) in the ignored root `.env` file and restart the desktop app; never paste the key into the browser or commit it.
 
-Then open Claude Code in any directory and type:
+For LAN students, set `STUDENT_ORIGIN=http://<teacher-LAN-IP>:4173` before starting the runtime and allow the relevant ports through the local firewall. A localhost join URL works only on the teacher computer.
 
-```
-/graphify .
-```
+For a Docker preview, set `POSTGRES_PASSWORD` in `.env` and run `docker compose up --build`. Open [the student/teacher app](http://localhost:4173) and [runtime health](http://localhost:4310/health). To create a preview administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.test "Preview Admin"` and save the one-time password printed in that terminal. Accounts are preview-only; do not use real student data.
 
-<details>
-<summary>Manual install (curl)</summary>
+## Checks
 
-```bash
-mkdir -p ~/.claude/skills/graphify
-curl -fsSL https://raw.githubusercontent.com/safishamsi/graphify/v1/skills/graphify/skill.md \
-  > ~/.claude/skills/graphify/SKILL.md
-```
+- `corepack pnpm typecheck` - typecheck all workspace packages.
+- `corepack pnpm test` - run workspace tests and runtime smoke checks.
+- With `TEST_DATABASE_URL` set to a disposable PostgreSQL database, tests cover lesson persistence, review transitions, and import → mocked generation → approval → runtime flow. Runtime restart/teacher-history regression tests also run against an in-memory persistence-store double; an opt-in PostgreSQL restart test is available but still needs to pass before merge.
+- To run the opt-in PostgreSQL migration/restart test, set both `TEST_DATABASE_URL` (disposable database only) and `RUN_POSTGRES_PERSISTENCE=1`, then run `corepack pnpm --filter @ckadinti/runtime-host test:postgres`.
+- `corepack pnpm build` - build/typecheck workspace packages.
+- `QA_DATABASE_URL=<disposable migrated database> node --import tsx scripts/qa-desktop.mjs` - after building, run the Electron UI against a temporary runtime; requires Playwright and never calls an AI provider.
+- Use the RTK wrappers in [AGENTS.md](AGENTS.md) for compact CLI output.
 
-Add to `~/.claude/CLAUDE.md`:
+## Contributor tools and branches
 
-```
-- **graphify** (`~/.claude/skills/graphify/SKILL.md`) - any input to knowledge graph. Trigger: `/graphify`
-When the user types `/graphify`, invoke the Skill tool with `skill: "graphify"` before doing anything else.
-```
+`AGENTS.md` tells Codex to query Graphify before codebase questions and use the RTK command policy in `RTK.md`. To run the local Graphify watcher, install it with `scripts/install-graphify-watch.sh`; `graphify update .` refreshes the graph manually. The Python Graphify CLI and its examples remain in this repository. Product-side Graphify visualizations, if added, must remain optional and adapter-based.
 
-</details>
+- `Arron`: teacher desktop, lesson ingestion, AI generation, quiz review, teacher reports.
+- `Edin`: student browser, LAN game host, realtime protocol, runtime scoring and analytics.
 
-## Usage
-
-```
-/graphify                          # run on current directory
-/graphify ./raw                    # run on a specific folder
-/graphify ./raw --mode deep        # more aggressive INFERRED edge extraction
-/graphify ./raw --update           # re-extract only changed files, merge into existing graph
-
-/graphify add https://arxiv.org/abs/1706.03762        # fetch a paper, save, update graph
-/graphify add https://x.com/karpathy/status/...       # fetch a tweet
-
-/graphify query "what connects attention to the optimizer?"
-/graphify path "DigestAuth" "Response"
-/graphify explain "SwinTransformer"
-
-/graphify ./raw --watch            # auto-sync graph as files change (code: instant, docs: notifies you)
-/graphify ./raw --wiki             # build agent-crawlable wiki (index.md + article per community)
-/graphify ./raw --svg              # export graph.svg
-/graphify ./raw --graphml          # export graph.graphml (Gephi, yEd)
-/graphify ./raw --neo4j            # generate cypher.txt for Neo4j
-/graphify ./raw --mcp              # start MCP stdio server
-
-graphify hook install              # post-commit git hook - rebuilds graph on every commit automatically
-```
-
-Works with any mix of file types:
-
-| Type | Extensions | Extraction |
-|------|-----------|------------|
-| Code | `.py .ts .js .go .rs .java .c .cpp .rb .cs .kt .scala .php` | AST via tree-sitter + call-graph pass |
-| Docs | `.md .txt .rst` | Concepts + relationships via Claude |
-| Papers | `.pdf` | Citation mining + concept extraction |
-| Images | `.png .jpg .webp .gif` | Claude vision - screenshots, diagrams, any language |
-
-## What you get
-
-**God nodes** - highest-degree concepts (what everything connects through)
-
-**Surprising connections** - ranked by composite score. Code-paper edges rank higher than code-code. Each result includes a plain-English why.
-
-**Suggested questions** - 4-5 questions the graph is uniquely positioned to answer
-
-**Token benchmark** - printed automatically after every run. On a mixed corpus (Karpathy repos + papers + images): **71.5x** fewer tokens per query vs reading raw files.
-
-**Auto-sync** (`--watch`) - run in a background terminal and the graph updates itself as your codebase changes. Code file saves trigger an instant rebuild (AST only, no LLM). Doc/image changes notify you to run `--update` for the LLM re-pass. Useful for agentic workflows where multiple agents are writing code in parallel - the graph stays current between waves automatically.
-
-**Git commit hook** (`graphify hook install`) - installs a post-commit hook that rebuilds the graph after every commit. No background process needed. Triggers once per commit, works with any editor, safe to add alongside existing hooks.
-
-**Wiki** (`--wiki`) - Wikipedia-style markdown articles per community and god node, with an `index.md` entry point. Point any agent at `index.md` and it can navigate the knowledge base by reading files instead of parsing JSON.
-
-Every edge is tagged `EXTRACTED`, `INFERRED`, or `AMBIGUOUS` - you always know what was found vs guessed.
-
-## Worked examples
-
-| Corpus | Files | Reduction | Output |
-|--------|-------|-----------|--------|
-| Karpathy repos + 5 papers + 4 images | 52 | **71.5x** | [`worked/karpathy-repos/`](worked/karpathy-repos/) |
-| graphify source + Transformer paper | 4 | **5.4x** | [`worked/mixed-corpus/`](worked/mixed-corpus/) |
-| httpx (synthetic Python library) | 6 | ~1x | [`worked/httpx/`](worked/httpx/) |
-
-Token reduction scales with corpus size. 6 files fits in a context window anyway, so graph value there is structural clarity, not compression. At 52 files (code + papers + images) you get 71x+. Each `worked/` folder has the raw input files and the actual output (`GRAPH_REPORT.md`, `graph.json`) so you can run it yourself and verify the numbers.
-
-## Tech stack
-
-NetworkX + Leiden (graspologic) + tree-sitter + Claude + vis.js. No Neo4j required, no server, runs entirely locally.
-
-<details>
-<summary>Contributing</summary>
-
-**Worked examples** are the most trust-building contribution. Run `/graphify` on a real corpus, save output to `worked/{slug}/`, write an honest `review.md` evaluating what the graph got right and wrong, submit a PR.
-
-**Extraction bugs** - open an issue with the input file, the cache entry (`graphify-out/cache/`), and what was missed or invented.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for module responsibilities and how to add a language.
-
-</details>
+The attached deep-research report is the original product brief. The team selected PostgreSQL instead of its SQLite recommendation; see [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).

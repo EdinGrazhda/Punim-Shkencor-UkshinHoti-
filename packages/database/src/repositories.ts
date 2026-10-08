@@ -366,7 +366,7 @@ export function createRepositories(db: Database) {
             .where(and(eq(schema.questions.id, id), eq(schema.questions.quizId, quizId)));
         }
         for (const [ordinal, id] of orderedQuestionIds.entries()) {
-          await tx.update(schema.questions).set({ ordinal, reviewStatus: "needs-review", updatedAt: now })
+          await tx.update(schema.questions).set({ ordinal, updatedAt: now })
             .where(and(eq(schema.questions.id, id), eq(schema.questions.quizId, quizId)));
         }
         await tx.update(schema.quizzes).set({ status: "needs-review", approvedAt: null, updatedAt: now })

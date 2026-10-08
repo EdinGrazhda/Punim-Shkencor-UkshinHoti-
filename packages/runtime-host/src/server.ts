@@ -17,6 +17,7 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { hashPassword, hashToken, issueTeacherSession, makeTeacherStore, verifyPassword, type TeacherStore } from "./teacher-auth.js";
 import { issueStudentSession, makeStudentAccountStore, type StudentAccountStore } from "./student-auth.js";
+import { makeRuntimeSessionStore, type RuntimeSessionStore } from "./session-store.js";
 
 type CodeParams = { code: string };
 
@@ -34,7 +35,11 @@ const changePasswordBody = z.object({ currentPassword: z.string().min(1), newPas
 const studentAccountBody = z.object({ name: z.string().trim().min(2).max(80), email, password: z.string().min(10).max(128) });
 const studentLoginBody = z.object({ email, password: z.string().min(1) });
 
-export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(), studentStore: StudentAccountStore = makeStudentAccountStore()) {
+export function createRuntimeHost(
+  teacherStore: TeacherStore = makeTeacherStore(),
+  studentStore: StudentAccountStore = makeStudentAccountStore(),
+  runtimeSessionStore: RuntimeSessionStore = makeRuntimeSessionStore(),
+) {
   const app = Fastify({ logger: false });
   const io = new Server(app.server, { cors: { origin: true } });
   const sessions = new Map<string, AuthoritativeSession>();
@@ -44,21 +49,57 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
   const getSession = (code: string) => {
     const session = sessions.get(code.toUpperCase());
     if (!session) throw new Error("session_not_found");
-    const previousPhase = session.state().phase;
-    session.tick();
-    if (previousPhase !== session.state().phase) io.to(session.code).emit("session:state", session.state());
     return session;
   };
   const joinPayload = (request: FastifyRequest, code: string) => buildJoinPayload(process.env.STUDENT_ORIGIN ?? `${request.protocol}://${request.hostname.split(":")[0]}:4173`, code);
   const token = (request: FastifyRequest) => request.headers.authorization?.replace(/^Bearer\s+/i, "");
+  const persistSession = (session: AuthoritativeSession) => runtimeSessionStore.save({
+    code: session.code,
+    ownerTeacherId: owners.get(session.code) ?? null,
+    state: session.toPersistence(),
+  });
   const teacherFromRequest = async (request: FastifyRequest) => {
     const value = token(request);
     return value ? teacherStore.findByToken(hashToken(value)) : null;
   };
+  const hostResults = (session: AuthoritativeSession) => ({
+    leaderboard: session.leaderboard().map(player => ({ ...player, answers: session.answerBreakdown(player.id) })),
+    questions: session.snapshot.questions.length,
+  });
   const publish = (session: AuthoritativeSession) => io.to(session.code).emit("session:state", session.state());
-  const ticker = setInterval(() => { for (const session of sessions.values()) { const previous = session.state().phase; session.tick(); if (previous !== session.state().phase) publish(session); } }, 250);
+  const dirtySessions = new Set<string>();
+  let tickerRunning = false;
+  const ticker = setInterval(() => {
+    if (tickerRunning) return;
+    tickerRunning = true;
+    void (async () => {
+      for (const session of sessions.values()) {
+        const previousPhase = session.state().phase;
+        session.tick();
+        const phaseChanged = previousPhase !== session.state().phase;
+        if (phaseChanged) dirtySessions.add(session.code);
+        if (!dirtySessions.has(session.code)) continue;
+        try {
+          await persistSession(session);
+          dirtySessions.delete(session.code);
+          if (phaseChanged) publish(session);
+        } catch (error) {
+          app.log.error({ err: error, sessionCode: session.code }, "Could not persist runtime session state");
+        }
+      }
+    })().finally(() => { tickerRunning = false; });
+  }, 250);
   ticker.unref();
-  app.addHook("onClose", async () => { clearInterval(ticker); await teacherStore.close(); await studentStore.close(); });
+  app.addHook("onClose", async () => { clearInterval(ticker); await teacherStore.close(); await studentStore.close(); await runtimeSessionStore.close(); });
+
+  const initialize = async () => {
+    await Promise.all([teacherStore.init(), studentStore.init(), runtimeSessionStore.init()]);
+    for (const record of await runtimeSessionStore.list()) {
+      const session = AuthoritativeSession.restore(record.state);
+      sessions.set(session.code, session);
+      if (record.ownerTeacherId) owners.set(session.code, record.ownerTeacherId);
+    }
+  };
 
   app.get("/health", async () => ({ ok: true, service: "ckadinti-runtime-host" }));
   app.get("/api/v1/health", async () => ({ ok: true, service: "ckadinti-runtime-host" }));
@@ -127,7 +168,37 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
     if (teacher.mustChangePassword) return reply.code(403).send({ error: "password_change_required" });
     const code = [...owners.entries()].reverse().find(([, id]) => id === teacher.id)?.[0];
     const session = code ? sessions.get(code) : undefined;
-    return reply.send({ session: session ? { code: session.code, token: session.hostToken, state: session.state() } : null });
+      return reply.send({ session: session ? { code: session.code, token: session.hostToken, state: session.state() } : null });
+  });
+
+  app.get("/api/v1/teachers/me/sessions", async (request, reply) => {
+    const teacher = await teacherFromRequest(request);
+    if (!teacher) return reply.code(401).send({ error: "unauthorized" });
+    if (teacher.role !== "teacher" || teacher.mustChangePassword) return reply.code(403).send({ error: "forbidden" });
+    const history = [...sessions.values()]
+      .filter(session => owners.get(session.code) === teacher.id)
+      .map(session => ({
+        code: session.code,
+        title: session.snapshot.title,
+        phase: session.state().phase,
+        playerCount: session.players.size,
+        questionCount: session.snapshot.questions.length,
+        createdAt: session.events.find(event => event.type === "session.created")?.at ?? 0,
+        completedAt: [...session.events].reverse().find(event => event.type === "session.ended")?.at ?? null,
+      }))
+      .sort((left, right) => right.createdAt - left.createdAt);
+    return reply.send({ sessions: history });
+  });
+
+  app.get<{ Params: CodeParams }>("/api/v1/teachers/me/sessions/:code/results", async (request, reply) => {
+    const teacher = await teacherFromRequest(request);
+    if (!teacher) return reply.code(401).send({ error: "unauthorized" });
+    if (teacher.role !== "teacher" || teacher.mustChangePassword) return reply.code(403).send({ error: "forbidden" });
+    const code = SessionCodeParam.parse(request.params).code;
+    const session = sessions.get(code);
+    if (!session || owners.get(code) !== teacher.id) return reply.code(404).send({ error: "session_not_found" });
+    if (session.state().phase !== "ended") return reply.code(409).send({ error: "results_not_ready" });
+    return reply.send(hostResults(session));
   });
 
   app.get("/api/v1/admin/overview", async (request, reply) => {
@@ -196,6 +267,7 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
       const session = new AuthoritativeSession(code, GameSnapshot.parse(body.snapshot));
       sessions.set(code, session);
       owners.set(code, teacher.id);
+      await persistSession(session);
       return reply.code(201).send({ ...joinPayload(request, code), hostToken: session.hostToken, state: session.state() });
     } catch (error) { return errorResponse(reply, error); }
   });
@@ -215,11 +287,14 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
       const existingId = student ? session.playerIdForStudent(student.id) : undefined;
       if (existingId) {
         const player = session.reconnect(existingId);
+        const playerToken = session.issuePlayerToken(player.id);
+        await persistSession(session);
         publish(session);
-        return reply.send({ player, playerToken: session.tokenFor(player.id), state: session.state() });
+        return reply.send({ player, playerToken, state: session.state() });
       }
       const player = session.join(data.displayName, undefined, data.emblem);
       if (student) session.linkStudentAccount(player.id, student.id);
+      await persistSession(session);
       publish(session);
       return reply.code(201).send({ player, playerToken: session.tokenFor(player.id), state: session.state() });
     }
@@ -227,7 +302,7 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
   });
 
   app.post<{ Params: CodeParams }>("/api/v1/sessions/:code/players/reconnect", async (request, reply) => {
-    try { const session = getSession(request.params.code); const playerId = ReconnectRequest.parse(request.body).playerId; if (!session.verifyPlayer(playerId, token(request))) return reply.code(401).send({ error: "unauthorized" }); const player = session.reconnect(playerId); publish(session); return reply.send({ player, state: session.state() }); }
+    try { const session = getSession(request.params.code); const playerId = ReconnectRequest.parse(request.body).playerId; if (!session.verifyPlayer(playerId, token(request))) return reply.code(401).send({ error: "unauthorized" }); const player = session.reconnect(playerId); await persistSession(session); publish(session); return reply.send({ player, state: session.state() }); }
     catch (error) { return errorResponse(reply, error); }
   });
 
@@ -237,23 +312,15 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
       const body = HttpAnswerRequest.parse(request.body);
       const { playerId, ...answer } = body;
       if (!session.verifyPlayer(playerId, token(request))) return reply.code(401).send({ error: "unauthorized" });
-      const result = session.answer(playerId, AnswerRequest.parse(answer)); publish(session); return reply.send({ ...result, ...(result.accepted ? { feedback: { available: true, ...session.playerResult(playerId) } } : {}) });
-    } catch (error) { return errorResponse(reply, error); }
-  });
-
-  app.post<{ Params: CodeParams }>("/api/v1/sessions/:code/rewards", async (request, reply) => {
-    try {
-      const session = getSession(request.params.code);
-      const body = z.object({ playerId: z.string(), questionIndex: z.number().int().nonnegative(), boxIndex: z.number().int().min(0).max(2).optional(), targetId: z.string().optional() }).parse(request.body);
-      if (!session.verifyPlayer(body.playerId, token(request))) return reply.code(401).send({ error: "unauthorized" });
-      const result = session.chooseReward(body.playerId, body.questionIndex, body.boxIndex, body.targetId);
+      const result = session.answer(playerId, AnswerRequest.parse(answer));
+      if (result.accepted) await persistSession(session);
       publish(session);
-      return reply.send({ available: true, ...result });
+      return reply.send(result);
     } catch (error) { return errorResponse(reply, error); }
   });
 
   app.post<{ Params: CodeParams }>("/api/v1/sessions/:code/commands", async (request, reply) => {
-    try { const session = getSession(request.params.code); if (!session.verifyHost(token(request))) return reply.code(401).send({ error: "unauthorized" }); const command = HostCommand.parse((request.body as { command?: unknown }).command); session.command(command); publish(session); return reply.send({ ok: true, state: session.state() }); }
+    try { const session = getSession(request.params.code); if (!session.verifyHost(token(request))) return reply.code(401).send({ error: "unauthorized" }); const command = HostCommand.parse((request.body as { command?: unknown }).command); session.command(command); await persistSession(session); publish(session); return reply.send({ ok: true, state: session.state() }); }
     catch (error) { return errorResponse(reply, error); }
   });
 
@@ -270,10 +337,7 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
       const session = getSession(request.params.code);
       if (!session.verifyHost(token(request))) return reply.code(401).send({ error: "unauthorized" });
       if (session.state().phase !== "ended") return reply.code(409).send({ error: "results_not_ready" });
-      return reply.send({
-        leaderboard: session.leaderboard().map(player => ({ ...player, answers: session.answerBreakdown(player.id) })),
-        questions: session.snapshot.questions.length,
-      });
+      return reply.send(hostResults(session));
     } catch (error) { return errorResponse(reply, error); }
   });
   app.get("/api/v1/students/leaderboard", async (_request, reply) => {
@@ -282,6 +346,7 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
       rankings.set(`account:${student.id}`, { id: `account:${student.id}`, displayName: student.name, score: 0, gamesPlayed: 0 });
     }
     for (const session of sessions.values()) {
+      if (session.state().phase !== "ended") continue;
       for (const player of session.leaderboard()) {
         const accountId = session.studentAccountFor(player.id);
         const id = accountId ? `account:${accountId}` : `guest:${session.code}:${player.id}`;
@@ -302,15 +367,15 @@ export function createRuntimeHost(teacherStore: TeacherStore = makeTeacherStore(
   // Socket.IO remains available for realtime clients and delegates to the same engine.
   io.on("connection", (socket) => {
     socket.on("session:watch", (raw, ack) => { try { const session = getSession(String(raw.code)); socket.join(session.code); ack({ ok: true, state: session.state() }); } catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "watch_failed" }); } });
-    socket.on("session:join", (raw, ack) => {
-      try { const data = JoinRequest.parse(raw); const session = getSession(String(raw.code)); const player = session.join(data.displayName, socket.id, data.emblem); socket.join(session.code); ack({ ok: true, player, playerToken: session.tokenFor(player.id), state: session.state() }); publish(session); }
+    socket.on("session:join", async (raw, ack) => {
+      try { const data = JoinRequest.parse(raw); const session = getSession(String(raw.code)); const player = session.join(data.displayName, socket.id, data.emblem); await persistSession(session); socket.join(session.code); ack({ ok: true, player, playerToken: session.tokenFor(player.id), state: session.state() }); publish(session); }
       catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "join_failed" }); }
     });
-    socket.on("session:reconnect", (raw, ack) => { try { const session = getSession(String(raw.code)); if (!session.verifyPlayer(raw.playerId, raw.playerToken)) throw new Error("unauthorized"); const player = session.reconnect(raw.playerId); socket.join(session.code); ack({ ok: true, player, state: session.state() }); publish(session); } catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "reconnect_failed" }); } });
-    socket.on("session:answer", (raw, ack) => { try { const data = AnswerRequest.parse(raw); const session = getSession(String(raw.code)); if (!session.verifyPlayer(raw.playerId, raw.playerToken)) throw new Error("unauthorized"); const result = session.answer(raw.playerId, data); ack(result); publish(session); } catch (error) { ack({ accepted: false, reason: error instanceof Error ? error.message : "answer_failed" }); } });
-    socket.on("session:command", (raw, ack) => { try { const session = getSession(String(raw.code)); if (!session.verifyHost(raw.hostToken)) throw new Error("unauthorized"); session.command(HostCommand.parse(raw.command)); ack({ ok: true, state: session.state() }); publish(session); } catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "command_failed" }); } });
-    socket.on("disconnect", () => { for (const session of sessions.values()) if (session.players.has(socket.id)) session.disconnect(socket.id); });
+    socket.on("session:reconnect", async (raw, ack) => { try { const session = getSession(String(raw.code)); if (!session.verifyPlayer(raw.playerId, raw.playerToken)) throw new Error("unauthorized"); const player = session.reconnect(raw.playerId); await persistSession(session); socket.join(session.code); ack({ ok: true, player, state: session.state() }); publish(session); } catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "reconnect_failed" }); } });
+    socket.on("session:answer", async (raw, ack) => { try { const data = AnswerRequest.parse(raw); const session = getSession(String(raw.code)); if (!session.verifyPlayer(raw.playerId, raw.playerToken)) throw new Error("unauthorized"); const result = session.answer(raw.playerId, data); if (result.accepted) await persistSession(session); ack(result); publish(session); } catch (error) { ack({ accepted: false, reason: error instanceof Error ? error.message : "answer_failed" }); } });
+    socket.on("session:command", async (raw, ack) => { try { const session = getSession(String(raw.code)); if (!session.verifyHost(raw.hostToken)) throw new Error("unauthorized"); session.command(HostCommand.parse(raw.command)); await persistSession(session); ack({ ok: true, state: session.state() }); publish(session); } catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "command_failed" }); } });
+    socket.on("disconnect", () => { for (const session of sessions.values()) if (session.players.has(socket.id)) { session.disconnect(socket.id); void persistSession(session).catch(error => app.log.error({ err: error, sessionCode: session.code }, "Could not persist player disconnect")); } });
   });
 
-  return { app, io, sessions, teacherStore, studentStore };
+  return { app, io, sessions, teacherStore, studentStore, runtimeSessionStore, init: initialize };
 }

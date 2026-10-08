@@ -1,0 +1,30 @@
+.history-picker {
+  display: grid;
+  gap: 5px;
+  min-width: min(100%, 320px);
+  color: #7d89a1;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.history-picker select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #e5e9f2;
+  border-radius: 10px;
+  background: white;
+  color: #00004e;
+  font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+@media (max-width: 620px) {
+  .page-heading:has(.history-picker) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: ckadinti
       POSTGRES_USER: ckadinti
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ckadinti-local-only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - teacher_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,7 +21,8 @@ services:
       - "4310:4310"
     environment:
       PORT: "4310"
-      DATABASE_URL: postgres://ckadinti:${POSTGRES_PASSWORD:-ckadinti-local-only}@postgres:5432/ckadinti
+      DATABASE_URL: postgres://ckadinti:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/ckadinti
+      STUDENT_ORIGIN: http://localhost:4173
     depends_on:
       postgres:
         condition: service_healthy

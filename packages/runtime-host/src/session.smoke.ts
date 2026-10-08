@@ -2,111 +2,91 @@ import assert from "node:assert/strict";
 import { AuthoritativeSession } from "./session.js";
 import { ApprovedQuestion, type GameSnapshot } from "@ckadinti/contracts";
 
-const snapshot: GameSnapshot = { id: "quiz-1", title: "Raid", questions: [{ id: "q1", prompt: "2+2?", options: ["3", "4"], correctOption: 1, timeLimitMs: 1000 }] };
+const snapshot: GameSnapshot = {
+  id: "quiz-1",
+  title: "Raid",
+  questions: [0, 1].map(index => ({
+    id: `q${index}`,
+    prompt: `${index + 2} + 2?`,
+    options: ["3", "4"],
+    correctOption: 1,
+    timeLimitMs: 1000,
+  })),
+};
+
 let now = 1000;
 const session = new AuthoritativeSession("ABC123", snapshot, () => now);
-const player = session.join("Ada", "player-1");
+const ada = session.join("Ada", "player-1");
+const ben = session.join("Ben", "player-2");
+session.command({ type: "set-timer", timeLimitMs: 20000 });
 session.command({ type: "start" });
-const request = { questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000001" } as const;
+assert.equal(session.state().question?.timeLimitMs, 20000);
+assert.throws(() => session.command({ type: "set-timer", timeLimitMs: 1000 }), /invalid_phase/);
+
+const adaRequest = {
+  questionIndex: 0,
+  optionIndex: 1,
+  idempotencyKey: "00000000-0000-4000-8000-000000000001",
+};
+const benRequest = {
+  questionIndex: 0,
+  optionIndex: 0,
+  idempotencyKey: "00000000-0000-4000-8000-000000000002",
+};
 now = 1100;
-assert.equal(session.answer(player.id, request).accepted, true);
-assert.equal(session.answer(player.id, request).duplicate, true);
+assert.equal(session.answer(ada.id, adaRequest).accepted, true);
+assert.equal(session.answer(ada.id, adaRequest).duplicate, true);
 assert.equal(session.answers.length, 1);
-assert.notEqual(session.snapshot, snapshot);
+assert.equal(session.answer(ben.id, benRequest).accepted, true);
 
-let lateNow = 0;
-const lateSession = new AuthoritativeSession("ABC123", snapshot, () => lateNow);
-const latePlayer = lateSession.join("Ada", "player-2");
-lateSession.command({ type: "start" });
-lateNow = 1001;
-assert.deepEqual(lateSession.answer(latePlayer.id, { questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000002" }), { accepted: false, reason: "deadline_passed" });
-console.log("runtime smoke tests passed");
+const hiddenResult = session.playerResult(ada.id);
+assert.deepEqual(hiddenResult, { questionIndex: 0, answered: true, selectedOption: 1 });
+assert.equal("correctOption" in hiddenResult, false);
+assert.equal("correct" in hiddenResult, false);
+assert.equal("score" in hiddenResult, false);
+assert.equal("xp" in hiddenResult, false);
+assert.equal(session.state().reveal, undefined);
 
-// Rewards are private, selected once, and transfer only 10% without creating points.
-let clock = 1000;
-const rounds = { ...snapshot, questions: [0, 1].map(i => ({ ...snapshot.questions[0]!, id: `q${i}`, timeLimitMs: 10000 })) };
-const game = new AuthoritativeSession("REWARD", rounds, () => clock, () => 2);
-const ada = game.join("Ada", "ada");
-const ben = game.join("Ben", "ben");
-game.command({ type: "set-timer", timeLimitMs: 20000 });
-game.command({ type: "start" });
-assert.equal(game.state().question?.timeLimitMs, 20000);
-assert.throws(() => game.command({ type: "set-timer", timeLimitMs: 1000 }), /invalid_phase/);
-assert.equal(game.playerResult(ada.id).correctOption, undefined);
-assert.throws(() => game.chooseReward(ada.id, 0, 0), /reward_unavailable/);
-game.answer(ada.id, { ...request, questionIndex: 0 });
-game.answer(ben.id, { ...request, questionIndex: 0 });
-assert.equal(game.playerResult(ada.id).correctOption, 1);
-assert.equal(JSON.stringify(game.playerResult(ada.id)).includes("hackBox"), false);
-const benBefore = game.score(ben.id);
-assert.equal(game.chooseReward(ben.id, 0, 0).reward?.kind, "points");
-assert.equal(game.score(ben.id), benBefore + 200);
-game.chooseReward(ben.id, 0, 1);
-assert.equal(game.score(ben.id), benBefore + 200);
-assert.equal(game.chooseReward(ada.id, 0, 2).reward?.kind, "hack");
-assert.throws(() => game.chooseReward(ada.id, 0, undefined, ada.id), /invalid_target/);
-assert.throws(() => game.chooseReward(ada.id, 0, undefined, "missing"), /invalid_target/);
-const total = game.score(ada.id) + game.score(ben.id);
-const stolen = Math.floor(game.score(ben.id) * .1);
-assert.equal(game.chooseReward(ada.id, 0, undefined, ben.id).reward?.points, stolen);
-assert.equal(game.score(ada.id) + game.score(ben.id), total);
-const afterHack = game.score(ada.id);
-game.chooseReward(ada.id, 0, undefined, ben.id);
-assert.equal(game.score(ada.id), afterHack);
-clock += 1500; game.tick();
-assert.equal(game.state().phase, "reveal");
-clock += 2000; game.tick();
-assert.equal(game.state().phase, "question");
-assert.equal(game.state().questionIndex, 1);
-assert.throws(() => game.chooseReward(ada.id, 0, 1), /stale_question/);
-const xpBefore = game.playerResult(ada.id).xp;
-game.answer(ada.id, { ...request, questionIndex: 1, optionIndex: 0, idempotencyKey: "wrong" });
-assert.equal(game.playerResult(ada.id).questionXp, 10);
-assert.equal(game.playerResult(ada.id).xp, xpBefore + 10);
-assert.equal(game.playerResult(ada.id).questionScore, 0);
-assert.equal(game.playerResult(ada.id).reward, undefined);
-assert.equal(game.playerResult(ada.id).correct, false);
-game.answer(ada.id, { ...request, questionIndex: 1, optionIndex: 0, idempotencyKey: "wrong" });
-assert.equal(game.playerResult(ada.id).xp, xpBefore + 10);
-clock += 1000; game.command({ type: "pause" });
-clock += 5000; game.tick();
-assert.equal(game.state().phase, "paused");
-game.command({ type: "resume" });
-assert.equal(game.state().question!.deadlineAt - clock, 19000);
-clock = game.state().question!.deadlineAt;
-assert.equal(game.answer(ben.id, { ...request, questionIndex: 1, idempotencyKey: "late" }).reason, "deadline_passed");
-game.tick(); assert.equal(game.state().phase, "reveal");
-clock += 2000; game.tick(); assert.equal(game.state().phase, "ended");
-const adaAnswers = game.answerBreakdown(ada.id);
-assert.equal(adaAnswers.length, 2);
-assert.deepEqual(adaAnswers.map(answer => ({ selectedAnswer: answer.selectedAnswer, correct: answer.correct })), [{ selectedAnswer: "4", correct: true }, { selectedAnswer: "3", correct: false }]);
-assert.equal(game.answerBreakdown(ben.id)[1]!.answered, false);
+now += 2000;
+session.tick();
+assert.equal(session.state().phase, "reveal");
+assert.equal(session.playerResult(ada.id).correctOption, 1);
+assert.equal(session.playerResult(ada.id).correct, true);
+assert.ok(session.playerResult(ada.id).score! > 0);
+assert.equal(session.playerResult(ben.id).correct, false);
+assert.equal(session.playerResult(ben.id).score, 0);
+const totalAfterQuestionOne = session.score(ada.id) + session.score(ben.id);
+
+session.command({ type: "next" });
+assert.equal(session.state().questionIndex, 1);
+assert.equal(session.state().phase, "question");
+assert.throws(() => session.command({ type: "set-timer", timeLimitMs: 1000 }), /invalid_phase/);
+
+now = session.state().question!.deadlineAt - 1000;
+session.command({ type: "pause" });
+now += 5000;
+session.tick();
+assert.equal(session.state().phase, "paused");
+session.command({ type: "resume" });
+assert.equal(session.state().question!.deadlineAt - now, 1000);
+
+const lateRequest = {
+  questionIndex: 1,
+  optionIndex: 1,
+  idempotencyKey: "00000000-0000-4000-8000-000000000003",
+};
+now = session.state().question!.deadlineAt;
+assert.equal(session.answer(ben.id, lateRequest).reason, "deadline_passed");
+session.tick();
+assert.equal(session.state().phase, "reveal");
+session.command({ type: "next" });
+assert.equal(session.state().phase, "ended");
+assert.equal(session.score(ada.id) + session.score(ben.id), totalAfterQuestionOne);
+const answers = session.answerBreakdown(ada.id);
+assert.equal(answers.length, 2);
+assert.equal(answers[0]!.correct, true);
+assert.equal(answers[1]!.answered, false);
+
 const { timeLimitMs, ...untimed } = snapshot.questions[0]!;
 assert.equal(ApprovedQuestion.parse(untimed).timeLimitMs, 10000);
-// Every possible hidden position has exactly two points choices and one Hack.
-for (let hidden = 0; hidden < 3; hidden++) {
-  for (let choice = 0; choice < 3; choice++) {
-    const trial = new AuthoritativeSession("TRIAL1", rounds, () => 1000, () => hidden);
-    const p = trial.join("Player"); trial.join("Target"); trial.command({ type: "start" });
-    trial.answer(p.id, request);
-    assert.equal(trial.chooseReward(p.id, 0, choice).reward?.kind, hidden === choice ? "hack" : "points");
-  }
-}
-console.log("reward, XP, timer and automatic progression tests passed");
-
-// A last-second correct answer still gets a full, visible reward window.
-let rewardClock = 1000;
-const lastSecond = new AuthoritativeSession("LAST01", snapshot, () => rewardClock, () => 2);
-const lastPlayer = lastSecond.join("Late learner");
-lastSecond.join("Target");
-lastSecond.command({ type: "start" });
-rewardClock = 1999;
-lastSecond.answer(lastPlayer.id, request);
-rewardClock = 2000; lastSecond.tick();
-assert.equal(lastSecond.state().phase, "question");
-assert.equal(lastSecond.playerResult(lastPlayer.id).reward?.deadlineAt, 16999);
-assert.equal(lastSecond.chooseReward(lastPlayer.id, 0, 2).reward?.kind, "hack");
-rewardClock = 3000;
-assert.equal(lastSecond.chooseReward(lastPlayer.id, 0, undefined, [...lastSecond.players.keys()][1]).reward?.completed, true);
-lastSecond.tick(); assert.equal(lastSecond.state().phase, "reveal");
-console.log("last-second reward selection passed");
+console.log("runtime privacy, scoring, timers and progression smoke tests passed");

@@ -75,18 +75,8 @@ class PostgresTeacherStore implements TeacherStore {
   private pool: pg.Pool;
   constructor(connectionString: string) { this.pool = new pg.Pool({ connectionString }); }
   async init() {
-    await this.pool.query(`CREATE TABLE IF NOT EXISTS teachers (
-      id uuid PRIMARY KEY, name text NOT NULL, email text NOT NULL UNIQUE,
-      password_hash text NOT NULL, role text NOT NULL DEFAULT 'teacher',
-      must_change_password boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL DEFAULT now()
-    )`);
-    await this.pool.query("ALTER TABLE teachers ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'teacher'");
-    await this.pool.query("ALTER TABLE teachers ADD COLUMN IF NOT EXISTS must_change_password boolean NOT NULL DEFAULT false");
-    await this.pool.query(`CREATE TABLE IF NOT EXISTS teacher_sessions (
-      token_hash text PRIMARY KEY, teacher_id uuid NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
-      expires_at timestamptz NOT NULL
-    )`);
-    await this.pool.query("CREATE INDEX IF NOT EXISTS teacher_sessions_expires_at_idx ON teacher_sessions(expires_at)");
+    await this.pool.query("SELECT id, name, email, password_hash, role, must_change_password, created_at FROM teachers LIMIT 0");
+    await this.pool.query("SELECT token_hash, teacher_id, expires_at FROM teacher_sessions LIMIT 0");
   }
   async findByEmail(email: string) {
     const result = await this.pool.query<StoredTeacher>("SELECT id, name, email, role, must_change_password AS \"mustChangePassword\", password_hash AS \"passwordHash\", created_at::text AS \"createdAt\" FROM teachers WHERE email = $1", [email]);
@@ -142,7 +132,8 @@ class PostgresTeacherStore implements TeacherStore {
 }
 
 function publicTeacher(teacher: StoredTeacher): Teacher { return { id: teacher.id, name: teacher.name, email: teacher.email, role: teacher.role, mustChangePassword: teacher.mustChangePassword }; }
-export function makeTeacherStore(): TeacherStore { return process.env.DATABASE_URL ? new PostgresTeacherStore(process.env.DATABASE_URL) : new MemoryTeacherStore(); }
+export function makeMemoryTeacherStore(): TeacherStore { return new MemoryTeacherStore(); }
+export function makeTeacherStore(): TeacherStore { return process.env.DATABASE_URL ? new PostgresTeacherStore(process.env.DATABASE_URL) : makeMemoryTeacherStore(); }
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
   const digest = await scrypt(password, salt, 64) as Buffer;
