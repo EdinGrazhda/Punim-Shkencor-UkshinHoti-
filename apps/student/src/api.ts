@@ -429,16 +429,22 @@ async function teacherContentRequest<T>(
   token: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(`/api/teacher-content/v1${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(typeof init.body === "string"
-        ? { "Content-Type": "application/json" }
-        : {}),
-      ...init.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`/api/teacher-content/v1${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(typeof init.body === "string"
+          ? { "Content-Type": "application/json" }
+          : {}),
+        ...init.headers,
+      },
+    });
+  } catch {
+    throw new Error("Cannot reach the teacher content service. Start the Electron desktop app and keep it open; it hosts the local browser authoring API.");
+  }
+  const unavailableMessage = `Teacher content service returned HTTP ${response.status}. Start or restart the Electron desktop app; it hosts the local browser authoring API.`;
   const text = await response.text();
   let data: Record<string, unknown> = {};
   if (text) {
@@ -448,7 +454,9 @@ async function teacherContentRequest<T>(
       throw new Error(
         response.ok
           ? "Teacher content service returned an invalid response."
-          : `Teacher content service failed (${response.status}).`,
+          : response.status >= 500
+            ? unavailableMessage
+            : `Teacher content service failed (${response.status}).`,
       );
     }
   }
@@ -456,7 +464,9 @@ async function teacherContentRequest<T>(
     throw new Error(
       typeof data.error === "string"
         ? data.error
-        : `Teacher content request failed (${response.status}).`,
+        : response.status >= 500
+          ? unavailableMessage
+          : `Teacher content request failed (${response.status}).`,
     );
   return data as T;
 }
@@ -483,6 +493,7 @@ export const teacherContentApi = {
       title: string;
       questionCount: number;
       status: "needs-review";
+      sampledSource?: boolean;
     }>(`/lessons/${lessonId}/generate`, token, {
       method: "POST",
       body: JSON.stringify({ questionCount }),

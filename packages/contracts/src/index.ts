@@ -30,9 +30,13 @@ export const lessonImportResultSchema = z.object({
   duplicate: z.boolean(),
 });
 export const lessonIdSchema = z.string().uuid();
+export const MAX_QUIZ_QUESTIONS = 200;
+export const MAX_LESSON_FILE_BYTES = 50 * 1024 * 1024;
+export const MAX_LESSON_TEXT_CHARS = 2_000_000;
+export const questionCountSchema = z.number().int().min(1).max(MAX_QUIZ_QUESTIONS);
 export const generateQuizRequestSchema = z.object({
   lessonId: lessonIdSchema,
-  questionCount: z.number().int().min(3).max(20).default(8),
+  questionCount: questionCountSchema.default(8),
 });
 
 export const questionKindSchema = z.enum(["multiple-choice", "true-false"]);
@@ -59,7 +63,7 @@ export const quizGenerationResultSchema = z.object({
   title: z.string().trim().min(1).max(160),
   language: z.string().trim().min(2).max(16),
   difficulty: difficultySchema,
-  questions: z.array(generatedQuestionSchema).min(1).max(50),
+  questions: z.array(generatedQuestionSchema).min(1).max(MAX_QUIZ_QUESTIONS),
 });
 export type QuizGenerationResult = z.infer<typeof quizGenerationResultSchema>;
 

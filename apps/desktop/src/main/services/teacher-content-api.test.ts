@@ -50,7 +50,7 @@ describe("local teacher content API", () => {
     const response = await fetch(`${baseUrl}/lessons/589eac50-8f4c-4fa3-a151-f04af1f526b2/generate`, {
       method: "POST",
       headers: { Authorization: "Bearer valid-teacher-token", "Content-Type": "application/json" },
-      body: JSON.stringify({ questionCount: 99 }),
+      body: JSON.stringify({ questionCount: 201 }),
     });
 
     expect(response.status).toBe(400);
@@ -66,5 +66,23 @@ describe("local teacher content API", () => {
     const response = await fetch(`${baseUrl}/lessons`, { headers: { Authorization: "Bearer valid-teacher-token" } });
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "Teacher content database is unavailable. Check DATABASE_URL and apply the migrations." });
+  });
+
+  it("reports a missing OpenAI key as a setup prerequisite", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    const { baseUrl } = await startApi({
+      getRepositories: () => ({ lessons: { get: vi.fn() } } as unknown as ReturnType<typeof createRepositories>),
+    });
+
+    const response = await fetch(`${baseUrl}/lessons/589eac50-8f4c-4fa3-a151-f04af1f526b2/generate`, {
+      method: "POST",
+      headers: { Authorization: "Bearer valid-teacher-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ questionCount: 3 }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "Set OPENAI_API_KEY in the private root .env file to generate quizzes.",
+    });
   });
 });

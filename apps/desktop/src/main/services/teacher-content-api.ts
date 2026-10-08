@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import {
   generateQuizRequestSchema,
+  MAX_LESSON_FILE_BYTES,
   lessonImportResultSchema,
   lessonIdSchema,
   questionIdSchema,
@@ -8,18 +9,18 @@ import {
   quizIdSchema,
   reviewQuestionSaveSchema,
 } from "@ckadinti/contracts";
-import { createRepositories } from "@ckadinti/database";
+import type { ContentRepositories } from "./content-repositories.js";
 import { z } from "zod";
 import { loadApprovedSnapshot } from "./approved-quiz.js";
 import { importLessonBytes } from "./lesson-import.js";
 import { generateQuizFromLesson, regenerateQuestionFromLesson } from "./quiz-generation.js";
 
-type Repositories = ReturnType<typeof createRepositories>;
+type Repositories = ContentRepositories;
 
 const API_PREFIX = "/api/teacher-content/v1";
 const JSON_BODY_LIMIT = 64 * 1024;
-const LESSON_BODY_LIMIT = 12 * 1024 * 1024;
-const generateBodySchema = z.object({ questionCount: z.number().int().min(3).max(20) });
+const LESSON_BODY_LIMIT = MAX_LESSON_FILE_BYTES;
+const generateBodySchema = generateQuizRequestSchema.pick({ questionCount: true });
 
 export interface TeacherContentApiOptions {
   getRepositories: () => Repositories;
@@ -63,9 +64,10 @@ function errorStatus(error: unknown): number {
   if (message === "unauthorized") return 401;
   if (message === "teacher_auth_unavailable") return 503;
   if (/DATABASE_URL|ECONNREFUSED|password authentication failed|database .*does not exist/i.test(message)) return 503;
+  if (/GEMINI_API_KEY|OPENAI_API_KEY|AI_PROVIDER must|KILO_MODEL must/i.test(message)) return 503;
   if (message === "not_found" || message.includes("could not be found")) return 404;
   if (message.includes("Every question must") || message.includes("before hosting")) return 409;
-  if (message.startsWith("OpenAI request failed")) return 502;
+  if (message.startsWith("AI provider request failed")) return 502;
   return 400;
 }
 
@@ -200,12 +202,15 @@ export function createTeacherContentApi(options: TeacherContentApiOptions) {
       const status = errorStatus(error);
       const message = status === 503 && error instanceof Error && /DATABASE_URL|ECONNREFUSED|password authentication failed|database .*does not exist/i.test(error.message)
         ? "Teacher content database is unavailable. Check DATABASE_URL and apply the migrations."
-        : errorMessage(error);
+          : status === 503 && error instanceof Error && /GEMINI_API_KEY|OPENAI_API_KEY|AI_PROVIDER must|KILO_MODEL must/i.test(error.message)
+          ? error.message
+          : errorMessage(error);
       sendJson(reply, status, { error: message });
     }
   }
 
   return {
+    handle,
     listen(port = options.port ?? 4320) {
       server = createServer((request, reply) => { void handle(request, reply); });
       return new Promise<void>((resolve, reject) => {

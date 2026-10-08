@@ -22,6 +22,10 @@ This plan is based on the attached research report. The research report original
 
 ## Arron - branch `Arron`
 
+### User-requested PDF extension (2026-10-07)
+
+On Arron, extend the original text-PDF boundary with local scanned/mixed-page OCR, bounded long-document generation, and custom 1–200 question counts. Reuse shared validation in HTTP/IPC and both teacher UIs; preserve source citations and mandatory review. Disclose sampling, file/page/text limits, and OCR language/quality requirements. This does not change Edin's branch or runtime ownership.
+
 ### Milestone A: teacher foundation
 
 - Scaffold the pnpm workspace and Electron Forge teacher app.

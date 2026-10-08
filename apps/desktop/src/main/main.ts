@@ -101,6 +101,11 @@ function registerIpc(): void {
   });
 
   ipcMain.handle("teacher:get-settings-status", async () => {
+    const aiProvider = process.env.AI_PROVIDER?.trim() || (process.env.GEMINI_API_KEY?.trim() ? "gemini" : "openai");
+    const model = process.env.AI_MODEL?.trim() || (aiProvider === "gemini"
+      ? process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash"
+      : aiProvider === "kilo" ? process.env.KILO_MODEL?.trim() || "nvidia/nemotron-3-super-120b-a12b:free"
+      : process.env.OPENAI_MODEL?.trim() || "gpt-6-astra");
     let databaseConnected = false;
     try {
       await getRepositories().lessons.list();
@@ -112,9 +117,10 @@ function registerIpc(): void {
       ok: true,
       data: {
         databaseConnected,
-        openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
-        model: process.env.OPENAI_MODEL ?? "gpt-6-astra",
-        sourceFormats: ["TXT", "Markdown", "text-based PDF", "DOCX"],
+        aiProvider,
+        aiConfigured: aiProvider === "kilo" ? model.endsWith(":free") : aiProvider === "gemini" ? Boolean(process.env.GEMINI_API_KEY?.trim()) : Boolean(process.env.OPENAI_API_KEY?.trim()),
+        model,
+        sourceFormats: ["TXT", "Markdown", "text or scanned PDF", "DOCX"],
       },
     };
   });

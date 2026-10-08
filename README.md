@@ -6,7 +6,7 @@ Read [AGENTS.md](AGENTS.md) for repository rules and [docs/TEAM_TASKS.md](docs/T
 
 ## Current integrated preview
 
-The teacher desktop app uses Electron, React, and TypeScript. It imports TXT, Markdown, text-based PDF, and DOCX lessons, normalizes them into evidence blocks, and persists them with PostgreSQL/Drizzle. A teacher can generate a quiz draft through the OpenAI Responses API, review/edit questions and evidence, approve the quiz, and export an approved runtime snapshot. The review screen supports add, duplicate, delete, reorder, bulk approval, and per-question regeneration.
+The teacher desktop app uses Electron, React, and TypeScript. It imports TXT, Markdown, text/scanned PDF, and DOCX lessons, normalizes them into evidence blocks, and persists them with PostgreSQL/Drizzle. A teacher can generate a quiz draft through the selected OpenAI, Gemini or Kilo API, review/edit questions and evidence, approve the quiz, and export an approved runtime snapshot. The review screen supports add, duplicate, delete, reorder, bulk approval, and per-question regeneration.
 
 The Arron branch now includes a local integrated copy of Edin's student/teacher/admin/projector browser UI and Fastify/Socket.IO runtime. The integrated browser teacher workspace also uses Arron's lesson import, AI draft, teacher review, and approved-snapshot flow to create a game. Runtime sessions, accepted answers, events, and score state are stored in PostgreSQL and restored after a host restart. The teacher can recover the latest host session and view completed-session history and reports. The separate desktop host view still reports sessions created during its current run.
 
@@ -14,12 +14,37 @@ This is still an integration preview, not yet merge-ready for `main`: the runtim
 
 ## Local development
 
-Requirements: Node.js, Corepack/pnpm 10.15.0, PostgreSQL, and (for AI generation) an OpenAI API key. Docker Compose can run the integrated browser/runtime preview.
+### Try AI generation without PostgreSQL
+
+For a temporary PDF-to-quiz test, set `AI_PROVIDER=kilo` and `KILO_MODEL=nvidia/nemotron-3-super-120b-a12b:free` in the ignored root `.env`, then run `corepack pnpm dev:ai-demo`. Open [the AI quiz demo](http://127.0.0.1:4175/ai-demo.html). No database, Electron process, login, or API key is required for this mode.
+
+The demo reuses the integrated teacher quiz studio and the real import/generation/evidence-validation services. Download the sample HTML lesson PDF from the page (or upload your own TXT, Markdown, text/scanned PDF or DOCX), enter a question count, generate, and review the answers and exact source quotes. Lessons and drafts live in memory and disappear when the demo server stops; live classroom hosting is disabled. Normal app persistence remains PostgreSQL.
+
+#### PDF support and custom question counts
+
+- Text PDFs, scanned pages, and mixed text/image pages use the same import flow. Image-containing pages are rendered and read locally by Tesseract; a digital heading does not hide a scanned body. English OCR data is bundled for offline recognition. Extracted lesson text is still sent to your selected AI provider for generation.
+- Other scan languages use `PDF_OCR_LANGUAGES` (for example `eng+sqi`) and `PDF_OCR_DATA_PATH`, a local folder containing **all** selected `<language>.traineddata.gz` packs. Restart the app/demo after configuration changes. Embedded PDF text does not require an OCR language pack. `PDF_OCR_FORCE=true` also reads pages whose embedded text layer is unusable.
+- Enter any whole count from **1 to 200** in either teacher UI. The service generates batches of at most eight, validates the exact total, rejects repeated prompts, and saves only after all AI batches pass validation. A short lesson may not support hundreds of distinct questions; use fewer questions or richer material if the model cannot meet the count.
+- Limits: **50 MB/file, 500 PDF pages, 2,000,000 extracted characters**, and 90 seconds of OCR recognition per page. All imported blocks are retained (the old 500-block truncation is removed). Long source blocks are split while preserving citation offsets.
+- Long-document generation distributes bounded source excerpts across the document. It can sample sections rather than cover every page; the result displays a sampling notice. It is not a promise of exhaustive textbook coverage. Regeneration prioritizes the question's existing evidence blocks.
+- Damaged/password-protected PDFs require a fresh/unlocked copy. Blurry scans, handwriting, equations, diagrams without readable text, and complex layouts are not guaranteed; always inspect extracted evidence and teacher-review the answers. No tool can reliably read literally every PDF.
+
+Kilo's anonymous free models have rate and availability limits. The adapter accepts only `:free` model IDs and never sends your Gemini/OpenAI keys to Kilo. Free providers may log lesson text and generated content or use it to improve their services; use non-confidential lessons. See [Kilo authentication](https://kilo.ai/docs/gateway/authentication) and [free model data handling](https://kilo.ai/docs/gateway/models-and-providers). Other free-tier providers in the [provider list](https://github.com/mnfst/awesome-free-llm-apis) generally issue keys through your own account.
+
+For an opt-in live check with this demo running and Kilo selected, run `node scripts/smoke-ai-demo.mjs 9` (omit the number for eight). It uploads the bundled HTML PDF, requests the exact count, and verifies answers and original-source citation spans. This check calls the external free provider; ordinary unit tests use mocked AI responses and local OCR fixtures. PDF line-wrap whitespace is tolerated, while changed evidence wording remains invalid. The final live nine-question/two-batch run passed on 2026-10-08. A batch gets one validation-repair attempt; provider/network failures can still require retrying.
+
+After packaging the desktop app, `node scripts/smoke-packaged-pdf.mjs` verifies its actual PDF/OCR dependency files (Windows x64 output by default; pass another package's `resources` directory as an argument). That check passed on 2026-10-08, alongside the local workspace tests and type checking. PostgreSQL-backed acceptance and multi-device classroom testing remain separate.
+
+### Full application
+
+Requirements: Node.js 22.13 or newer, Corepack/pnpm 10.15.0, PostgreSQL, and a configured AI provider (Gemini/OpenAI with a private key, or anonymous Kilo for non-confidential trial lessons). Docker Compose can run the integrated browser/runtime preview.
 
 1. Run `corepack pnpm install`.
 2. Copy `.env.example` to `.env`, set `DATABASE_URL`, then run `corepack pnpm --filter @ckadinti/database db:migrate`.
-3. Set `OPENAI_API_KEY` to enable generation. Optionally set `OPENAI_MODEL`; the default is `gpt-6-astra`. Keep secrets out of renderer code and commits.
+3. For Google AI Studio, set `AI_PROVIDER=gemini` and `GEMINI_API_KEY`; the default model is `gemini-3.8-flash` (override with `GEMINI_MODEL`). Alternatively choose `AI_PROVIDER=openai` and set `OPENAI_API_KEY`; its default model is `gpt-6-astra` (override with `OPENAI_MODEL`). A configured Gemini key is auto-selected if `AI_PROVIDER` is omitted. Keep secrets out of renderer code and commits.
 4. Start `corepack pnpm dev:host` and `corepack pnpm dev:student` in separate terminals, then `corepack pnpm dev:desktop`. The browser teacher content API is hosted by the trusted Electron main process at `127.0.0.1:4320`; keep the desktop process open while using that browser authoring flow. The Vite server proxies API/socket traffic to the runtime at port 4310.
+
+If the browser teacher page reports that the teacher content service returned HTTP 500, start or restart `corepack pnpm dev:desktop` and leave it running. If the API reports that PostgreSQL is unavailable, start PostgreSQL and apply the database migrations. If generation reports that AI is not configured, set the selected provider's key (`GEMINI_API_KEY` for Gemini or `OPENAI_API_KEY` for OpenAI) in the ignored root `.env` file and restart the desktop app; never paste the key into the browser or commit it.
 
 For LAN students, set `STUDENT_ORIGIN=http://<teacher-LAN-IP>:4173` before starting the runtime and allow the relevant ports through the local firewall. A localhost join URL works only on the teacher computer.
 
@@ -32,7 +57,7 @@ For a Docker preview, set `POSTGRES_PASSWORD` in `.env` and run `docker compose 
 - With `TEST_DATABASE_URL` set to a disposable PostgreSQL database, tests cover lesson persistence, review transitions, and import → mocked generation → approval → runtime flow. Runtime restart/teacher-history regression tests also run against an in-memory persistence-store double; an opt-in PostgreSQL restart test is available but still needs to pass before merge.
 - To run the opt-in PostgreSQL migration/restart test, set both `TEST_DATABASE_URL` (disposable database only) and `RUN_POSTGRES_PERSISTENCE=1`, then run `corepack pnpm --filter @ckadinti/runtime-host test:postgres`.
 - `corepack pnpm build` - build/typecheck workspace packages.
-- `QA_DATABASE_URL=<disposable migrated database> node --import tsx scripts/qa-desktop.mjs` - after building, run the Electron UI against a temporary runtime; requires Playwright and never calls OpenAI.
+- `QA_DATABASE_URL=<disposable migrated database> node --import tsx scripts/qa-desktop.mjs` - after building, run the Electron UI against a temporary runtime; requires Playwright and never calls an AI provider.
 - Use the RTK wrappers in [AGENTS.md](AGENTS.md) for compact CLI output.
 
 ## Contributor tools and branches

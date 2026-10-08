@@ -5,7 +5,11 @@
 - [x] Workspace, Electron teacher shell, secure main/preload boundary, and Windows desktop packaging.
 - [x] PostgreSQL/Drizzle migrations and teacher-owned lesson, quiz, question, evidence, and generation-job repositories.
 - [x] TXT, Markdown, text-based PDF, and DOCX ingestion with normalized evidence blocks and deduplication.
-- [x] OpenAI Responses API structured quiz generation with source-quote evidence and mandatory teacher review.
+- [x] Arron PDF extension: PDF.js text extraction and local OCR for scanned/mixed pages; English data bundled. Real image-only/mixed-page fixtures pass. Limits are 50 MB, 500 pages and 2M characters; protected, damaged or unreadable documents produce actionable errors. Additional OCR languages require local language packs.
+- [x] Custom 1–200-question inputs in both teacher UIs, shared validation, generation in batches of at most eight, duplicate-prompt rejection, and no saved draft on later AI-batch failure. Count planning covers every integer 1–200; mocked generation covers 2, 7, 9, 25 and 200. Live nine-question/two-batch generation passed through Kilo on 2026-10-07.
+- [x] Long lesson ingestion retains all blocks and source offsets; bounded generation samples across long documents and discloses sampling. Question regeneration prioritizes existing source evidence. This is not exhaustive page-by-page textbook coverage or a guarantee for every scan/layout.
+- [x] OpenAI Responses API, Google Gemini and anonymous Kilo free-model generation with structured validation, source-quote evidence and mandatory teacher review. Live PDF generation succeeded through Kilo on 2026-10-07; Gemini was blocked by regional free-tier/billing eligibility and OpenAI still needs local verification.
+- [x] Opt-in `dev:ai-demo` reuses the browser quiz studio and actual content services with temporary memory storage on `127.0.0.1:4175`, without PostgreSQL or an admin login. Imported the sample HTML PDF and generated eight questions with correct-answer and original-source-span checks. PDF line-wrapping differences are accepted while changed citation wording remains rejected.
 - [x] Teacher review actions: edit, approve/reject, add, duplicate, delete, reorder, bulk approve, and per-question regenerate.
 - [x] Approved quiz export through the shared `GameSnapshot` contract, including teacher-reviewed explanations.
 - [x] Local session creation and native desktop host controls/reports.
@@ -15,6 +19,16 @@
 
 ## Remaining before main integration
 
+### Verification completed on 2026-10-08
+
+- Local workspace tests passed, including desktop OCR/generation regressions and runtime privacy/scoring/timer/REST smoke tests. Workspace type checking passed.
+- Browser production build passed with the existing large-chunk warning.
+- Packaged dependency smoke check passed: PDF.js, native canvas, Tesseract worker/WASM, and bundled English OCR data loaded from the packaged `app.asar.unpacked` directory, not workspace dependencies.
+- Final live database-free demo check generated exactly nine questions across two batches and verified one correct answer per question plus original-source evidence spans. One bounded retry can repair citation/count/duplicate errors without relaxing validation.
+- These checks do not replace the pending real PostgreSQL, LAN/multi-device, full classroom acceptance, and remote CI checks below. No merge or push was performed.
+
+### Integration checklist
+
 - [x] Keep answer acknowledgements and player endpoints free of correctness, correct options, score, XP, and streak until reveal; add runtime and REST regression coverage.
 - [x] Remove reward/power-up endpoints and score changes; the agreed MVP scoring has no score changes from power-ups.
 - [x] Persist runtime snapshots, accepted answers, events, and results in PostgreSQL through the versioned runtime migration; restore games after restart. Unit/regression coverage uses a memory-store double.
@@ -23,7 +37,7 @@
 - [ ] Validate migrations and runtime persistence against a disposable PostgreSQL database (`TEST_DATABASE_URL`); the opt-in `test:postgres` check is implemented but could not run because the service is unavailable in this environment.
 - [x] Run local workspace typecheck, runnable unit/smoke tests, Vite production build, and Electron packaging.
 - [ ] Verify a clean dependency install, PostgreSQL-backed tests, LAN/multi-device play, and CI on the integrated branch.
-- [ ] Run browser teacher import/generation/approval flow with a locally configured database and private OpenAI key; live provider generation has not been performed here.
+- [ ] Run the full PostgreSQL-backed browser teacher import/generation/approval/hosting flow with a configured AI provider. The database-free demo proves live generation but does not validate persistence or classroom hosting.
 
 ## Security and behavior blockers
 

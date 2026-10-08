@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState, type FormEvent } from "react";
 import type { JSX } from "react";
 import { createRoot } from "react-dom/client";
+import { MAX_QUIZ_QUESTIONS, questionCountSchema } from "@ckadinti/contracts";
 import { HostWorkspace } from "./HostWorkspace";
 import "./styles.css";
 
@@ -11,7 +12,7 @@ type QuizSummary = { id: string; lessonId: string | null; title: string; languag
 type QuestionEdit = { prompt: string; explanation: string; topic: string; difficulty: string; options: Array<{ text: string; isCorrect: boolean }> };
 type TeacherGameSnapshot = { id: string; title: string; questions: Array<{ id: string; prompt: string; options: string[]; correctOption: number; timeLimitMs: number; explanation?: string }> };
 type HostedQuizSession = { code: string; joinUrl: string; title: string; questionCount: number };
-type TeacherSettingsStatus = { databaseConnected: boolean; openAiConfigured: boolean; model: string; sourceFormats: string[] };
+type TeacherSettingsStatus = { databaseConnected: boolean; aiProvider: string; aiConfigured: boolean; model: string; sourceFormats: string[] };
 
 function TeacherApp(): JSX.Element {
   const [page, setPage] = useState<Page>("Dashboard");
@@ -22,7 +23,8 @@ function TeacherApp(): JSX.Element {
   const [importing, setImporting] = useState(false);
   const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
   const [generating, setGenerating] = useState(false);
-  const [questionCount, setQuestionCount] = useState(8);
+  const [questionCount, setQuestionCount] = useState("8");
+  const validQuestionCount = questionCountSchema.safeParse(Number(questionCount)).success;
   const [reviewQuiz, setReviewQuiz] = useState<TeacherQuizReview | null>(null);
   const [questionEdits, setQuestionEdits] = useState<Record<string, QuestionEdit>>({});
   const [dirtyQuestionIds, setDirtyQuestionIds] = useState<Set<string>>(new Set());
@@ -68,15 +70,15 @@ function TeacherApp(): JSX.Element {
   }, [page, selectedLesson, focusBlockOrdinal]);
 
   async function generateQuiz(): Promise<void> {
-    if (!selectedLesson) return;
+    if (!selectedLesson || !validQuestionCount) return;
     setGenerating(true);
     setError("");
     setNotice("");
     try {
-      const result = await window.teacherBridge.generateQuiz(selectedLesson.id, questionCount);
+      const result = await window.teacherBridge.generateQuiz(selectedLesson.id, Number(questionCount));
       if (!result.ok || !result.data) setError(result.error?.message ?? "Quiz generation failed.");
       else {
-        setNotice(`Created “${result.data.title}” with ${result.data.questionCount} questions. All questions need teacher review.`);
+        setNotice(`Created “${result.data.title}” with ${result.data.questionCount} questions. All questions need teacher review.${result.data.sampledSource ? " This long lesson was sampled across sections, not every page." : ""}`);
         await refreshQuizzes();
       }
     } catch {
@@ -412,7 +414,8 @@ function TeacherApp(): JSX.Element {
   }
 
   function renderSettings(): JSX.Element {
-    return <section className="settings-grid"><article className="source-block"><p className="eyebrow accent">Local services</p><h2>Workspace configuration</h2><p>PostgreSQL: <strong>{settingsStatus?.databaseConnected ? "Connected" : settingsStatus ? "Not connected" : "Checking…"}</strong></p><p>OpenAI API key: <strong>{settingsStatus?.openAiConfigured ? "Configured in main process" : settingsStatus ? "Not configured" : "Checking…"}</strong></p><p>Generation model: <strong>{settingsStatus?.model ?? "—"}</strong></p><button className="secondary" onClick={() => void loadSettingsStatus()} type="button">Refresh status</button></article><article className="source-block"><p className="eyebrow accent">Content formats</p><h2>Supported lesson imports</h2><p>{settingsStatus?.sourceFormats.join(" · ") ?? "TXT · Markdown · text-based PDF · DOCX"}</p><p>For local development, set DATABASE_URL and OPENAI_API_KEY in the private root .env file. The app never sends either value to the renderer.</p></article></section>;
+    const providerLabel = settingsStatus?.aiProvider === "kilo" ? "Kilo" : settingsStatus?.aiProvider === "gemini" ? "Gemini" : "OpenAI";
+    return <section className="settings-grid"><article className="source-block"><p className="eyebrow accent">Local services</p><h2>Workspace configuration</h2><p>PostgreSQL: <strong>{settingsStatus?.databaseConnected ? "Connected" : settingsStatus ? "Not connected" : "Checking…"}</strong></p><p>{providerLabel} access: <strong>{settingsStatus?.aiConfigured ? (settingsStatus.aiProvider === "kilo" ? "Anonymous free access" : "Configured in main process") : settingsStatus ? "Not configured" : "Checking…"}</strong></p><p>Generation model: <strong>{settingsStatus?.model ?? "—"}</strong></p><button className="secondary" onClick={() => void loadSettingsStatus()} type="button">Refresh status</button></article><article className="source-block"><p className="eyebrow accent">Content formats</p><h2>Supported lesson imports</h2><p>{settingsStatus?.sourceFormats.join(" · ") ?? "TXT · Markdown · text or scanned PDF · DOCX"}</p><p>For local development, set DATABASE_URL and either GEMINI_API_KEY with AI_PROVIDER=gemini or OPENAI_API_KEY with AI_PROVIDER=openai in the private root .env file. For a free API test, choose AI_PROVIDER=kilo; no key is required. The app never sends provider keys to the renderer.</p></article></section>;
   }
 
   useEffect(() => {
@@ -447,7 +450,7 @@ function TeacherApp(): JSX.Element {
         {notice && <p className="file-note" role="status">{notice}</p>}
         {lessons.length === 0 ? <div className="empty-state"><strong>No lessons yet</strong><span>Import TXT, Markdown, text PDF, or DOCX content to begin.</span></div> : <div className="lesson-list">{lessons.map((lesson) => <button className={selectedLesson?.id === lesson.id ? "lesson-card selected" : "lesson-card"} key={lesson.id} onClick={() => void openLesson(lesson.id)} type="button"><span className="lesson-type">{lesson.sourceType}</span><strong>{lesson.title}</strong><small>{lesson.originalFilename ?? "Imported lesson"}</small></button>)}</div>}
       </div>
-      <div className="detail-panel">{selectedLesson ? <><p className="eyebrow accent">Source evidence</p><h2>{selectedLesson.title}</h2><p className="detail-meta">{selectedLesson.blocks.length} source blocks · {selectedLesson.language.toUpperCase()} · {selectedLesson.sourceType}</p><div className="generation-controls"><label htmlFor="question-count">Questions to generate</label><select id="question-count" value={questionCount} onChange={(event) => setQuestionCount(Number(event.target.value))}>{[3, 5, 8, 10, 15, 20].map((count) => <option key={count} value={count}>{count} questions</option>)}</select><button className="primary" disabled={generating} onClick={() => void generateQuiz()} type="button">{generating ? "Generating…" : "Generate draft quiz"}</button></div>{notice && <p className="file-note" role="status">{notice}</p>}{error && <p className="error-note" role="alert">{error}</p>}<div className="blocks">{selectedLesson.blocks.map((block) => <article className={focusBlockOrdinal === block.ordinal ? "source-block evidence-focus" : "source-block"} id={`lesson-block-${block.ordinal}`} key={block.id}><span>Block {block.ordinal + 1}</span>{block.heading && <strong>{block.heading}</strong>}<p>{selectedLesson.normalizedText.slice(block.charStart, block.charEnd)}</p></article>)}</div></> : <div className="empty-state detail-empty"><strong>Select a lesson</strong><span>Review source blocks here before generating a Cyber Raid quiz.</span></div>}</div>
+      <div className="detail-panel">{selectedLesson ? <><p className="eyebrow accent">Source evidence</p><h2>{selectedLesson.title}</h2><p className="detail-meta">{selectedLesson.blocks.length} source blocks · {selectedLesson.language.toUpperCase()} · {selectedLesson.sourceType}</p><div className="generation-controls"><label htmlFor="question-count">Questions to generate</label><input id="question-count" type="number" min={1} max={MAX_QUIZ_QUESTIONS} step={1} value={questionCount} onChange={(event) => setQuestionCount(event.target.value)} /><span>1–{MAX_QUIZ_QUESTIONS} questions; large quizzes run in batches. Long lessons may be sampled.</span><button className="primary" disabled={generating || !validQuestionCount} onClick={() => void generateQuiz()} type="button">{generating ? "Generating…" : "Generate draft quiz"}</button></div>{notice && <p className="file-note" role="status">{notice}</p>}{error && <p className="error-note" role="alert">{error}</p>}<div className="blocks">{selectedLesson.blocks.map((block) => <article className={focusBlockOrdinal === block.ordinal ? "source-block evidence-focus" : "source-block"} id={`lesson-block-${block.ordinal}`} key={block.id}><span>Block {block.ordinal + 1}</span>{block.heading && <strong>{block.heading}</strong>}<p>{selectedLesson.normalizedText.slice(block.charStart, block.charEnd)}</p></article>)}</div></> : <div className="empty-state detail-empty"><strong>Select a lesson</strong><span>Review source blocks here before generating a Cyber Raid quiz.</span></div>}</div>
     </section>;
   }
 

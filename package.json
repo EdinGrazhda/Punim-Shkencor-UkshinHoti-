@@ -5,6 +5,7 @@
   "description": "Desktop-first local AI classroom quiz platform",
   "packageManager": "pnpm@10.15.0",
   "scripts": {
+    "dev:ai-demo": "pnpm --filter @ckadinti/desktop exec vite --config vite.ai-demo.config.ts",
     "dev:desktop": "pnpm --filter @ckadinti/desktop dev",
     "dev:student": "pnpm --filter @ckadinti/student dev",
     "dev:host": "pnpm --filter @ckadinti/runtime-host dev",

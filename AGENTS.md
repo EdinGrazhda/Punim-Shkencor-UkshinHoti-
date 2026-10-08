@@ -11,8 +11,8 @@ Build a desktop-first, local-first classroom quiz MVP:
 - Persistence: PostgreSQL + Drizzle ORM, configured through `DATABASE_URL`.
 - LAN game host: Fastify + Socket.IO in `packages/runtime-host`, authoritative for game state, answers, timing, and score.
 - Shared validation: Zod contracts in `packages/contracts`, used by IPC, HTTP, AI, and realtime messages.
-- AI quiz generation: OpenAI Responses API with strict structured output, followed by mandatory teacher review.
-- MVP imports TXT, Markdown, text-based PDF, and DOCX. OCR, cloud sync, hosted relay, free-response grading, and accounts are deferred.
+- AI quiz generation: selectable OpenAI Responses API, Google Gemini API, or anonymous Kilo free models, with structured output validation and mandatory teacher review. Provider keys stay in the trusted Node/Electron main process. The opt-in `dev:ai-demo` uses temporary memory storage on loopback for API testing without PostgreSQL; normal app persistence remains PostgreSQL.
+- Imports TXT, Markdown, PDF, and DOCX. The user's Arron PDF extension adds local OCR for scans/mixed pages and custom 1–200-question batched generation. English OCR is bundled; other languages require local packs. Keep resource limits and sampling disclosures visible. Cloud sync, hosted relay, free-response grading, and accounts remain deferred.
 
 Do not copy the look, terminology, assets, or implementation of Blooket/Kahoot. Use original product language and visuals. Never expose correct answers or authoritative scores to students before reveal.
 
