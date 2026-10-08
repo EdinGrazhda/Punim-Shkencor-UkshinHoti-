@@ -134,6 +134,8 @@ export const AnswerRequest = z.object({
 export type AnswerRequest = z.infer<typeof AnswerRequest>;
 export const HttpAnswerRequest = AnswerRequest.extend({ playerId: Player.shape.id });
 export type HttpAnswerRequest = z.infer<typeof HttpAnswerRequest>;
+export const BonusPickRequest = z.object({ playerId: Player.shape.id, boxIndex: z.number().int().min(0).max(2) });
+export const HackRequest = z.object({ playerId: Player.shape.id, targetId: Player.shape.id });
 export const HttpCommandRequest = z.object({ command: z.unknown() });
 export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("set-timer"), timeLimitMs: z.number().int().min(1000).max(600_000) }),
@@ -205,7 +207,7 @@ export const gameSnapshotFromApprovedQuestions = (input: {
     prompt: question.prompt,
     options: question.options.map((option) => option.text),
     correctOption: question.options.findIndex((option) => option.isCorrect),
-    timeLimitMs: question.timeLimitMs ?? 30_000,
+    timeLimitMs: question.timeLimitMs ?? 10_000,
     ...(question.explanation ? { explanation: question.explanation } : {}),
   })),
 });

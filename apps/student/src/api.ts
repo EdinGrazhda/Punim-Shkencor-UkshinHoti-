@@ -119,6 +119,16 @@ export type PlayerResult = {
   correct?: boolean;
   answered?: boolean;
   streak?: number;
+  bonus?: {
+    available: boolean;
+    boxIndex?: number;
+    kind?: "points" | "hack";
+    points?: number;
+    targetId?: string;
+    stolen?: number;
+    soloFallback?: boolean;
+    targets?: { id: string; displayName: string }[];
+  };
 };
 export type Leaderboard = {
   leaderboard: { id: string; displayName: string; score: number }[];
@@ -412,6 +422,18 @@ export const api = {
     request<PlayerResult>(
       `/sessions/${identity.code}/me`,
       { headers: { "x-player-id": identity.id } },
+      identity.token,
+    ),
+  pickBonus: (identity: PlayerIdentity, boxIndex: number) =>
+    request<PlayerResult>(
+      `/sessions/${identity.code}/players/bonus`,
+      { method: "POST", body: JSON.stringify({ playerId: identity.id, boxIndex }) },
+      identity.token,
+    ),
+  hack: (identity: PlayerIdentity, targetId: string) =>
+    request<PlayerResult>(
+      `/sessions/${identity.code}/players/hack`,
+      { method: "POST", body: JSON.stringify({ playerId: identity.id, targetId }) },
       identity.token,
     ),
   results: (code: string) => request<Leaderboard>(`/sessions/${code}/results`),
