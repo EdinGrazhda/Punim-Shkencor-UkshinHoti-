@@ -23,7 +23,7 @@ type CodeParams = { code: string };
 
 function errorResponse(reply: FastifyReply, error: unknown) {
   const message = error instanceof Error ? error.message : "request_failed";
-  const status = message === "session_not_found" || message === "player_not_found" || message === "teacher_not_found" ? 404 : message === "email_taken" || message === "invalid_phase" || message === "lobby_closed" || message === "deadline_passed" ? 409 : 400;
+  const status = message === "session_not_found" || message === "player_not_found" || message === "teacher_not_found" ? 404 : message === "email_taken" || message === "invalid_phase" || message === "lobby_closed" || message === "deadline_passed" || message === "reveal_in_progress" || message === "random_team_assignment_active" ? 409 : 400;
   return reply.code(status).send({ error: message });
 }
 

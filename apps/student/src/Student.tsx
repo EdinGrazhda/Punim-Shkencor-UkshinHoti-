@@ -98,6 +98,7 @@ export function Student() {
   const [state, setState] = useState<PublicSessionState | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [result, setResult] = useState<PlayerResult | null>(null);
+  const [wrongAnswerCountdown, setWrongAnswerCountdown] = useState<number | null>(null);
   const [leaderboard, setLeaderboard] = useState<Leaderboard | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -315,6 +316,24 @@ export function Student() {
     navigate("/join");
   }
 
+  const phase = state?.phase ?? "lobby";
+  const currentResult = result?.questionIndex === state?.questionIndex ? result : null;
+  const feedback = (phase === "reveal" || phase === "ended") && currentResult && typeof currentResult.correct === "boolean" ? currentResult : null;
+  useEffect(() => {
+    if (phase !== "reveal" || !feedback?.answered || feedback.correct) {
+      setWrongAnswerCountdown(null);
+      return;
+    }
+    const startedAt = Date.now();
+    setWrongAnswerCountdown(3);
+    const timer = window.setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((3_000 - (Date.now() - startedAt)) / 1_000));
+      setWrongAnswerCountdown(remaining);
+      if (remaining === 0) window.clearInterval(timer);
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [phase, state?.questionIndex, feedback?.answered, feedback?.correct]);
+
   if (step === "join" && !identity)
     return (
       <div className="student-page join-page">
@@ -389,14 +408,7 @@ export function Student() {
       </div>
     );
 
-  const phase = state?.phase ?? "lobby";
   const question = state?.question;
-  const currentResult =
-    result?.questionIndex === state?.questionIndex ? result : null;
-  const feedback =
-    (phase === "reveal" || phase === "ended") && currentResult
-      ? currentResult
-      : null;
   const locked = selected !== null || currentResult?.answered;
   const totalPlayers = state?.players.length ?? 0;
   const ownPlayer = state?.players.find(player => player.id === identity?.id);
@@ -614,17 +626,15 @@ export function Student() {
                 <Flame size={18} /> {result?.streak ?? 0} streak
               </span>
             </div>
-            <Card className="explanation-card">
-              <small>THE RIGHT ANSWER</small>
-              <strong>
-                {state?.question?.options[state?.reveal?.correctOption ?? 0]}
-              </strong>
-              {feedback?.answered && <p className={`student-answer-verdict ${feedback.correct ? "correct" : "incorrect"}`} role="status">{feedback.correct ? "You selected the correct answer." : `Your answer, “${state?.question?.options[feedback.selectedOption ?? -1] ?? "unknown"}”, was incorrect. The correct answer is shown above.`}</p>}
-              <p>
-                {state?.reveal?.explanation ??
-                  "The teacher will explain this answer."}
-              </p>
-            </Card>
+            {!feedback && <Card className="explanation-card"><p role="status">Checking your answer before revealing the solution…</p></Card>}
+            {feedback && feedback.answered && !feedback.correct && wrongAnswerCountdown === 0
+              ? <Card className="explanation-card"><small>ANSWER REVEAL ENDED</small><p>The correct answer was shown briefly. Continue with your teacher’s explanation.</p></Card>
+              : feedback && (!feedback.answered || feedback.correct || wrongAnswerCountdown === null || wrongAnswerCountdown > 0) && <Card className="explanation-card">
+                <small>{feedback.answered && !feedback.correct ? `THE RIGHT ANSWER · ${wrongAnswerCountdown ?? 3}s` : "THE RIGHT ANSWER"}</small>
+                <strong>{state?.question?.options[state?.reveal?.correctOption ?? 0]}</strong>
+                {feedback.answered && <p className={`student-answer-verdict ${feedback.correct ? "correct" : "incorrect"}`} role="status">{feedback.correct ? "You selected the correct answer." : `Your answer, “${state?.question?.options[feedback.selectedOption ?? -1] ?? "unknown"}”, was incorrect. The correct answer is shown above.`}</p>}
+                <p>{state?.reveal?.explanation ?? "The teacher will explain this answer."}</p>
+              </Card>}
             <Card className="mission-card">
               <div>
                 <strong>Mission progress</strong>

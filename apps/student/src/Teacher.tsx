@@ -37,6 +37,7 @@ import type {
   HostCommand,
   Player,
   PublicSessionState,
+  TeamAssignmentMode,
 } from "@ckadinti/contracts";
 import {
   api,
@@ -68,12 +69,14 @@ const nav: { id: Tab; label: string; Icon: typeof Home }[] = [
 function LobbyPlayerAssignment({
   player,
   teamCount,
+  teamAssignmentMode,
   busy,
   onSaveName,
   onAssignTeam,
 }: {
   player: Player;
   teamCount: number;
+  teamAssignmentMode: TeamAssignmentMode;
   busy: boolean;
   onSaveName: (displayName: string) => void;
   onAssignTeam: (teamIndex: number) => void;
@@ -81,7 +84,7 @@ function LobbyPlayerAssignment({
   const [displayName, setDisplayName] = useState(player.displayName);
   useEffect(() => setDisplayName(player.displayName), [player.displayName]);
   const normalizedName = displayName.trim().replace(/\s+/gu, " ");
-  const currentTeam = Number(player.teamId?.slice("team-".length)) || 1;
+  const currentTeam = Number(player.teamId?.slice("team-".length)) || 0;
 
   return (
     <div className="player-assignment-controls">
@@ -109,9 +112,10 @@ function LobbyPlayerAssignment({
           <select
             aria-label={`Team for ${player.displayName}`}
             value={currentTeam}
-            disabled={busy}
+            disabled={busy || teamAssignmentMode === "random"}
             onChange={(event) => onAssignTeam(Number(event.target.value))}
           >
+            {teamAssignmentMode === "manual" && <option value={0}>Unassigned</option>}
             {Array.from({ length: teamCount }, (_, index) => index + 1).map((teamIndex) => (
               <option key={teamIndex} value={teamIndex}>Team {teamIndex}</option>
             ))}
@@ -323,6 +327,7 @@ export function Teacher({ onLogout }: { onLogout: () => void }) {
     }
   }
   const count = state?.players.length ?? 0;
+  const revealWaitMs = state?.phase === "reveal" ? Math.max(0, (state.revealUntil ?? 0) - now) : 0;
   const joinLink = host
     ? `${window.location.origin}/join?code=${host.code}`
     : "";
@@ -728,8 +733,8 @@ export function Teacher({ onLogout }: { onLogout: () => void }) {
                         </Button>
                       )}
                       {state.phase === "reveal" && (
-                        <Button disabled={busy} onClick={() => void command({ type: "next" })}>
-                          Next question <ArrowRight size={16} />
+                        <Button disabled={busy || revealWaitMs > 0} onClick={() => void command({ type: "next" })}>
+                          {revealWaitMs > 0 ? `Answer reveal · ${Math.ceil(revealWaitMs / 1_000)}s` : "Next question"} <ArrowRight size={16} />
                         </Button>
                       )}
                       {state.phase !== "ended" && (
@@ -790,6 +795,7 @@ export function Teacher({ onLogout }: { onLogout: () => void }) {
                               <LobbyPlayerAssignment
                                 player={p}
                                 teamCount={state.teamCount ?? 0}
+                                teamAssignmentMode={state.teamAssignmentMode ?? "random"}
                                 busy={busy}
                                 onSaveName={(displayName) => void command({ type: "rename-player", playerId: p.id, displayName })}
                                 onAssignTeam={(teamIndex) => void command({ type: "assign-player-team", playerId: p.id, teamIndex })}
@@ -808,12 +814,20 @@ export function Teacher({ onLogout }: { onLogout: () => void }) {
                       {state.phase === "lobby" && (
                         <>
                           <label className="classroom-setting">
-                            Team play
+                            Teams
                             <select value={state.teamCount ?? 0} disabled={busy} onChange={event => void command({ type: "set-team-count", teamCount: Number(event.target.value) as 0 | 2 | 3 | 4 | 5 | 6 })}>
                               <option value={0}>Individual play</option>
-                              {[2, 3, 4, 5, 6].map(teamCount => <option key={teamCount} value={teamCount}>{teamCount} balanced teams</option>)}
+                              {[2, 3, 4, 5, 6].map(teamCount => <option key={teamCount} value={teamCount}>{teamCount} teams</option>)}
                             </select>
-                            <small>Teams balance when selected; you can move students between teams below. New students join the smallest team.</small>
+                            <small>Choose individual play or set the number of teams, then select how students are assigned.</small>
+                          </label>
+                          <label className="classroom-setting">
+                            Team assignment
+                            <select value={state.teamAssignmentMode ?? "random"} disabled={busy || !(state.teamCount ?? 0)} onChange={event => void command({ type: "set-team-assignment-mode", teamAssignmentMode: event.target.value as TeamAssignmentMode })}>
+                              <option value="manual">Assign students manually</option>
+                              <option value="random">Randomly assign balanced teams</option>
+                            </select>
+                            <small>{!state.teamCount ? "Enable team play first." : state.teamAssignmentMode === "manual" ? "Students are unassigned until you place each one using the Team selector below. New arrivals stay unassigned." : "Students are shuffled into balanced teams; new arrivals join a smallest team chosen at random."}</small>
                           </label>
                           <label className="classroom-setting">
                             Nickname policy

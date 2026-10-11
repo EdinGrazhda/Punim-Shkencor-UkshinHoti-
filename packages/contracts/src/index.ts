@@ -125,6 +125,8 @@ export type GameSnapshot = z.infer<typeof GameSnapshot>;
 
 export const nicknameModeSchema = z.enum(["student-choice", "assigned"]);
 export type NicknameMode = z.infer<typeof nicknameModeSchema>;
+export const teamAssignmentModeSchema = z.enum(["manual", "random"]);
+export type TeamAssignmentMode = z.infer<typeof teamAssignmentModeSchema>;
 
 // Runtime contracts shared by the teacher host and student browser. Keep these
 // additive so the lesson/AI/review contracts above remain the single source of truth.
@@ -160,9 +162,10 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("end") }),
   z.object({ type: z.literal("lock-lobby"), locked: z.boolean() }),
   z.object({ type: z.literal("set-team-count"), teamCount: z.union([z.literal(0), z.number().int().min(2).max(6)]) }),
+  z.object({ type: z.literal("set-team-assignment-mode"), teamAssignmentMode: teamAssignmentModeSchema }),
   z.object({ type: z.literal("set-nickname-mode"), nicknameMode: nicknameModeSchema }),
   z.object({ type: z.literal("rename-player"), playerId: Player.shape.id, displayName: Player.shape.displayName }),
-  z.object({ type: z.literal("assign-player-team"), playerId: Player.shape.id, teamIndex: z.number().int().min(1).max(6) }),
+  z.object({ type: z.literal("assign-player-team"), playerId: Player.shape.id, teamIndex: z.number().int().min(0).max(6) }),
   z.object({ type: z.literal("kick"), playerId: z.string().min(1) }),
   z.object({ type: z.literal("reveal") }),
   z.object({ type: z.literal("next") }),
@@ -208,10 +211,12 @@ export const PublicSessionState = z.object({
   phase: SessionPhase,
   lobbyLocked: z.boolean(),
   teamCount: z.number().int().min(0).max(6).optional(),
+  teamAssignmentMode: teamAssignmentModeSchema.optional(),
   nicknameMode: nicknameModeSchema.optional(),
   players: z.array(Player.extend({ answered: z.boolean().optional() })),
   question: PublicQuestion.optional(),
   questionIndex: z.number().int().nonnegative().optional(),
+  revealUntil: z.number().int().positive().optional(),
   answeredCount: z.number().int().nonnegative(),
   reveal: z.object({ correctOption: z.number().int().nonnegative(), explanation: z.string().optional() }).optional(),
 });

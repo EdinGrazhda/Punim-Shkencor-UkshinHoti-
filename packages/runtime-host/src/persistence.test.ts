@@ -114,12 +114,14 @@ describe("runtime session persistence", () => {
       headers: { authorization: "Bearer " + playerToken, "x-player-id": player.id },
     })).json()).toMatchObject({ correct: true, correctOption: 1 });
 
-    await secondHost.app.inject({
+    const earlyNext = await secondHost.app.inject({
       method: "POST",
       url: "/api/v1/sessions/PERS01/commands",
       headers: { authorization: "Bearer " + renewedHostToken },
       payload: { command: { type: "next" } },
     });
+    expect(earlyNext.statusCode).toBe(409);
+    await new Promise(resolve => setTimeout(resolve, 3_100));
     const report = await secondHost.app.inject({
       method: "GET",
       url: "/api/v1/sessions/PERS01/host/results",

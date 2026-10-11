@@ -6,11 +6,14 @@ describe("teacher quiz contracts", () => {
     expect(JoinRequest.safeParse({ emblem: "Comet" }).success).toBe(true);
     expect(HostCommand.safeParse({ type: "set-team-count", teamCount: 4 }).success).toBe(true);
     expect(HostCommand.safeParse({ type: "set-team-count", teamCount: 1 }).success).toBe(false);
+    expect(HostCommand.safeParse({ type: "set-team-assignment-mode", teamAssignmentMode: "manual" }).success).toBe(true);
+    expect(HostCommand.safeParse({ type: "set-team-assignment-mode", teamAssignmentMode: "random" }).success).toBe(true);
+    expect(HostCommand.safeParse({ type: "set-team-assignment-mode", teamAssignmentMode: "automatic" }).success).toBe(false);
     expect(HostCommand.safeParse({ type: "set-nickname-mode", nicknameMode: "assigned" }).success).toBe(true);
     expect(HostCommand.safeParse({ type: "set-nickname-mode", nicknameMode: "unknown" }).success).toBe(false);
     expect(HostCommand.safeParse({ type: "rename-player", playerId: "student-1", displayName: "Ada Lovelace" }).success).toBe(true);
     expect(HostCommand.safeParse({ type: "assign-player-team", playerId: "student-1", teamIndex: 2 }).success).toBe(true);
-    expect(HostCommand.safeParse({ type: "assign-player-team", playerId: "student-1", teamIndex: 0 }).success).toBe(false);
+    expect(HostCommand.safeParse({ type: "assign-player-team", playerId: "student-1", teamIndex: 0 }).success).toBe(true);
     expect(HostCommand.safeParse({ type: "assign-player-team", playerId: "student-1", teamIndex: 7 }).success).toBe(false);
   });
 

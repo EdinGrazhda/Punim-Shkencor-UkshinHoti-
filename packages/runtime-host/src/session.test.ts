@@ -29,27 +29,37 @@ describe("authoritative session", () => {
     const ada = session.join("Ada", "player-team-1");
     const ben = session.join("Ben", "player-team-2");
     const cy = session.join("Cy", "player-team-3");
-    expect([ada.teamName, ben.teamName, cy.teamName]).toEqual(["Team 1", "Team 2", "Team 1"]);
+    expect([ada, ben, cy].every(player => player.teamId)).toBe(true);
+    const memberCounts = [ada, ben, cy].reduce<Record<string, number>>((counts, player) => {
+      const teamId = player.teamId!;
+      counts[teamId] = (counts[teamId] ?? 0) + 1;
+      return counts;
+    }, {});
+    expect(Object.values(memberCounts).sort()).toEqual([1, 2]);
     expect(session.state().teamCount).toBe(2);
+    expect(session.state().teamAssignmentMode).toBe("random");
+    expect(AuthoritativeSession.restore(session.toPersistence()).state()).toMatchObject({ teamCount: 2, teamAssignmentMode: "random" });
+    expect(() => session.command({ type: "assign-player-team", playerId: ada.id, teamIndex: 2 })).toThrow("random_team_assignment_active");
 
     session.command({ type: "start" });
     now += 100;
     expect(session.answer(ada.id, { questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000101" }).accepted).toBe(true);
     expect(session.state().players.find(player => player.id === ada.id)?.answered).toBe(true);
     session.command({ type: "reveal" });
-    expect(session.teamLeaderboard()).toEqual([
-      { id: "team-1", name: "Team 1", score: session.score(ada.id) + session.score(cy.id), players: 2 },
-      { id: "team-2", name: "Team 2", score: session.score(ben.id), players: 1 },
-    ]);
+    expect(session.teamLeaderboard()).toHaveLength(2);
+    expect(session.teamLeaderboard().reduce((sum, team) => sum + team.players, 0)).toBe(3);
+    expect(session.teamLeaderboard().reduce((sum, team) => sum + team.score, 0)).toBe(session.score(ada.id) + session.score(ben.id) + session.score(cy.id));
     expect(() => session.command({ type: "set-team-count", teamCount: 3 })).toThrow("invalid_phase");
   });
 
   it("lets teachers rename students and manually assign teams in the lobby", () => {
     const session = new AuthoritativeSession("ABC123", snapshot);
+    session.command({ type: "set-team-assignment-mode", teamAssignmentMode: "manual" });
     session.command({ type: "set-team-count", teamCount: 2 });
     const ada = session.join("Ada", "player-manual-1");
     const ben = session.join("Ben", "player-manual-2");
     const cy = session.join("Cy", "player-manual-3");
+    expect([ada, ben, cy].every(player => !player.teamId)).toBe(true);
 
     session.command({ type: "rename-player", playerId: ada.id, displayName: "Ada L." });
     session.command({ type: "assign-player-team", playerId: ada.id, teamIndex: 2 });
@@ -59,11 +69,31 @@ describe("authoritative session", () => {
 
     const dee = session.join("Dee", "player-manual-4");
     expect(session.players.get(ada.id)?.teamId).toBe("team-2");
-    expect(session.players.get(dee.id)?.teamId).toBe("team-1");
+    expect(session.players.get(dee.id)?.teamId).toBeUndefined();
+    session.command({ type: "assign-player-team", playerId: ada.id, teamIndex: 0 });
+    expect(session.players.get(ada.id)?.teamId).toBeUndefined();
+    session.command({ type: "assign-player-team", playerId: ada.id, teamIndex: 2 });
 
     session.command({ type: "start" });
     expect(() => session.command({ type: "rename-player", playerId: ben.id, displayName: "Ben B." })).toThrow("invalid_phase");
     expect(() => session.command({ type: "assign-player-team", playerId: ben.id, teamIndex: 1 })).toThrow("invalid_phase");
+  });
+
+  it("shuffles existing lobby students into balanced teams when random mode is selected", () => {
+    const session = new AuthoritativeSession("ABC123", snapshot);
+    session.command({ type: "set-team-count", teamCount: 2 });
+    const players = ["Ada", "Ben", "Cy", "Dee", "Eli"].map((name, index) => session.join(name, `player-random-${index}`));
+    session.command({ type: "set-team-assignment-mode", teamAssignmentMode: "manual" });
+    expect([...session.players.values()].every(player => !player.teamId)).toBe(true);
+    session.command({ type: "set-team-assignment-mode", teamAssignmentMode: "random" });
+
+    const counts = players.reduce<Record<string, number>>((result, player) => {
+      const teamId = session.players.get(player.id)!.teamId!;
+      result[teamId] = (result[teamId] ?? 0) + 1;
+      return result;
+    }, {});
+    expect(Object.values(counts).sort()).toEqual([2, 3]);
+    expect(session.state().teamAssignmentMode).toBe("random");
   });
 
   it("freezes the approved snapshot and rejects duplicate answers", () => {
@@ -101,6 +131,23 @@ describe("authoritative session", () => {
       score: expect.any(Number),
     });
   });
+
+  it("holds each revealed answer for three seconds and blocks an early next command", () => {
+    let now = 1_000;
+    const session = new AuthoritativeSession("ABC123", snapshot, () => now);
+    session.command({ type: "start" });
+    session.command({ type: "reveal" });
+    expect(session.state()).toMatchObject({ phase: "reveal", revealUntil: 4_000 });
+    expect(() => session.command({ type: "next" })).toThrow("reveal_in_progress");
+
+    now = 3_999;
+    session.tick();
+    expect(session.state().phase).toBe("reveal");
+    now = 4_000;
+    session.command({ type: "next" });
+    expect(session.state().phase).toBe("ended");
+  });
+
   it("does not accept answers after the deadline", () => {
     let now = 0; const session = new AuthoritativeSession("ABC123", snapshot, () => now); const player = session.join("Ada", "player-1"); session.command({ type: "start" }); now = 1001;
     expect(session.answer(player.id, { questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000002" })).toEqual({ accepted: false, reason: "deadline_passed" });
@@ -119,7 +166,7 @@ describe("authoritative session", () => {
     delete legacyState.pausedSessionRemaining;
     expect(AuthoritativeSession.restore(legacyState, () => now).state().question?.timeLimitMs).toBe(1000);
     session.command({ type: "reveal" });
-    now += 2000;
+    now += 3000;
     session.tick();
     expect(session.state().phase).toBe("ended");
     expect(session.questionsPlayed).toBe(1);
@@ -154,7 +201,7 @@ describe("authoritative session", () => {
       }).accepted).toBe(true);
       session.command({ type: "reveal" });
       if (occurrence < 3) {
-        now += 2000;
+        now += 3000;
         session.tick();
       }
     }

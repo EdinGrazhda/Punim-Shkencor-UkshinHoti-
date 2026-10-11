@@ -1,5 +1,5 @@
 import { createHash, randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
-import { ApprovedQuestion, AnswerRequest, GameSnapshot, HostCommand, Player, PublicSessionState, ScoreBreakdown, SessionPhase, calculateScore, type NicknameMode } from "@ckadinti/contracts";
+import { ApprovedQuestion, AnswerRequest, GameSnapshot, HostCommand, Player, PublicSessionState, ScoreBreakdown, SessionPhase, teamAssignmentModeSchema, calculateScore, type NicknameMode, type TeamAssignmentMode } from "@ckadinti/contracts";
 import { z } from "zod";
 
 export type SessionEvent = { id: string; at: number; type: string; playerId?: string; payload?: unknown };
@@ -18,6 +18,7 @@ const persistedSessionSchema = z.object({
   code: z.string().length(6),
   snapshot: GameSnapshot,
   teamCount: z.number().int().min(0).max(6).default(0),
+  teamAssignmentMode: teamAssignmentModeSchema.default("random"),
   nicknameMode: z.enum(["student-choice", "assigned"]).default("student-choice"),
   nicknameCounter: z.number().int().nonnegative().default(0),
   players: z.array(Player),
@@ -87,6 +88,7 @@ export class AuthoritativeSession {
   private phase: PublicSessionState["phase"] = "lobby";
   private lobbyLocked = false;
   private teamCount = 0;
+  private teamAssignmentMode: TeamAssignmentMode = "random";
   private nicknameMode: NicknameMode = "student-choice";
   private nicknameCounter = 0;
 
@@ -127,6 +129,7 @@ export class AuthoritativeSession {
     this.phase = state.phase;
     this.lobbyLocked = state.lobbyLocked;
     this.teamCount = state.teamCount;
+    this.teamAssignmentMode = state.teamAssignmentMode;
     this.nicknameMode = state.nicknameMode;
     this.nicknameCounter = state.nicknameCounter;
   }
@@ -137,6 +140,7 @@ export class AuthoritativeSession {
       code: this.code,
       snapshot: structuredClone(this.snapshot),
       teamCount: this.teamCount,
+      teamAssignmentMode: this.teamAssignmentMode,
       nicknameMode: this.nicknameMode,
       nicknameCounter: this.nicknameCounter,
       players: [...this.players.values()].map(player => ({ ...player, connected: false })),
@@ -166,7 +170,7 @@ export class AuthoritativeSession {
     const name = this.nicknameMode === "assigned" ? classroomNickname(this.nicknameCounter++) : this.validateNickname(displayName);
     let player = Player.parse({ id: playerId, displayName: name, emblem, connected: true, joinedAt: this.now() });
     this.players.set(player.id, player);
-    this.assignPlayerToSmallestTeam(player.id);
+    this.assignPlayerToRandomTeam(player.id);
     player = this.players.get(player.id)!;
     this.scores.set(player.id, 0);
     this.streaks.set(player.id, 0);
@@ -210,7 +214,8 @@ export class AuthoritativeSession {
     if (command.type === "resume") { if (this.phase !== "paused") throw new Error("invalid_phase"); if (this.isTimedRepeat && this.pausedSessionRemaining <= 0) { this.endSession(); return; } this.phase = "question"; if (this.isTimedRepeat) { this.sessionDeadlineAt = this.now() + this.pausedSessionRemaining; this.pausedSessionRemaining = 0; } this.questionStartedAt = this.now() - this.pausedQuestionElapsed; this.pausedQuestionElapsed = 0; this.deadlineAt = this.now() + this.pausedRemaining; if (this.isTimedRepeat) this.deadlineAt = Math.min(this.deadlineAt, this.sessionDeadlineAt); this.emit("session.resumed"); }
     if (command.type === "end") { this.phase = "ended"; this.emit("session.ended"); }
     if (command.type === "lock-lobby") { this.lobbyLocked = command.locked; this.emit("lobby.locked", { locked: command.locked }); }
-    if (command.type === "set-team-count") { if (this.phase !== "lobby") throw new Error("invalid_phase"); this.teamCount = command.teamCount; this.assignTeams(); this.emit("teams.changed", { teamCount: this.teamCount }); }
+    if (command.type === "set-team-count") { if (this.phase !== "lobby") throw new Error("invalid_phase"); this.teamCount = command.teamCount; this.assignTeams(); this.emit("teams.changed", { teamCount: this.teamCount, teamAssignmentMode: this.teamAssignmentMode }); }
+    if (command.type === "set-team-assignment-mode") { if (this.phase !== "lobby") throw new Error("invalid_phase"); this.teamAssignmentMode = command.teamAssignmentMode; this.assignTeams(); this.emit("teams.assignment-mode-changed", { teamCount: this.teamCount, teamAssignmentMode: this.teamAssignmentMode }); }
     if (command.type === "set-nickname-mode") { if (this.phase !== "lobby") throw new Error("invalid_phase"); this.nicknameMode = command.nicknameMode; if (this.nicknameMode === "assigned") { let index = 0; for (const player of this.players.values()) this.players.set(player.id, { ...player, displayName: classroomNickname(index++) }); this.nicknameCounter = index; } this.emit("nicknames.changed", { nicknameMode: this.nicknameMode }); }
     if (command.type === "rename-player") {
       if (this.phase !== "lobby") throw new Error("invalid_phase");
@@ -223,9 +228,16 @@ export class AuthoritativeSession {
     if (command.type === "assign-player-team") {
       if (this.phase !== "lobby") throw new Error("invalid_phase");
       if (this.teamCount === 0) throw new Error("teams_disabled");
+      if (this.teamAssignmentMode !== "manual") throw new Error("random_team_assignment_active");
       if (command.teamIndex > this.teamCount) throw new Error("team_not_found");
       const player = this.players.get(command.playerId);
       if (!player) throw new Error("player_not_found");
+      if (command.teamIndex === 0) {
+        const { teamId: _teamId, teamName: _teamName, ...unassigned } = player;
+        this.players.set(player.id, unassigned);
+        this.emit("player.team-assigned", { playerId: player.id, teamIndex: 0 });
+        return;
+      }
       this.players.set(player.id, { ...player, teamId: `team-${command.teamIndex}`, teamName: `Team ${command.teamIndex}` });
       this.emit("player.team-assigned", { playerId: player.id, teamIndex: command.teamIndex });
     }
@@ -272,11 +284,12 @@ export class AuthoritativeSession {
   private revealQuestion() {
     if (this.isTimedRepeat && this.sessionDeadlineAt > 0 && this.now() >= this.sessionDeadlineAt) { this.endSession(); return; }
     this.phase = "reveal";
-    this.revealUntil = this.now() + 2000;
+    this.revealUntil = this.now() + 3000;
     this.emit("question.revealed", { questionIndex: this.currentIndex });
   }
   nextQuestion() {
     if (this.phase !== "reveal") throw new Error("invalid_phase");
+    if (this.now() < this.revealUntil) throw new Error("reveal_in_progress");
     if (this.isTimedRepeat && this.sessionDeadlineAt > 0 && this.now() >= this.sessionDeadlineAt) { this.endSession(); return; }
     const nextIndex = this.currentIndex + 1;
     if (!this.isTimedRepeat && nextIndex >= this.snapshot.questions.length) { this.endSession(); return; }
@@ -299,9 +312,11 @@ export class AuthoritativeSession {
       phase: this.phase,
       lobbyLocked: this.lobbyLocked,
       teamCount: this.teamCount,
+      teamAssignmentMode: this.teamAssignmentMode,
       nicknameMode: this.nicknameMode,
       players: [...this.players.values()].map(player => ({ ...player, answered: this.answers.some(answer => answer.playerId === player.id && answer.questionIndex === this.currentIndex) })),
       question: question && this.phase !== "lobby" && this.phase !== "ended" ? { index: this.currentIndex, prompt: question.prompt, options: question.options, deadlineAt: this.deadlineAt, timeLimitMs: Math.max(1, this.deadlineAt - this.questionStartedAt), ...(this.phase === "paused" ? { remainingMs: this.pausedRemaining } : {}) } : undefined,
+      revealUntil: this.phase === "reveal" ? this.revealUntil : undefined,
       reveal: this.phase === "reveal" && question ? { correctOption: question.correctOption, explanation: question.explanation } : undefined,
       questionIndex: this.currentIndex,
       answeredCount: this.answers.filter(a => a.questionIndex === this.currentIndex).length,
@@ -363,20 +378,25 @@ export class AuthoritativeSession {
     if ([...this.players.values()].some(player => player.id !== exceptPlayerId && player.displayName.normalize("NFKC").toLocaleLowerCase("en-US") === normalized)) throw new Error("nickname_taken");
     return name;
   }
-  private assignPlayerToSmallestTeam(playerId: string) {
-    if (this.teamCount === 0) return;
+  private randomSmallestTeamIndex(sizes: number[]) {
+    const minSize = Math.min(...sizes);
+    const smallestTeams = sizes.flatMap((size, index) => size === minSize ? [index] : []);
+    return smallestTeams[Math.floor(Math.random() * smallestTeams.length)]!;
+  }
+  private assignPlayerToRandomTeam(playerId: string) {
+    if (this.teamCount === 0 || this.teamAssignmentMode !== "random") return;
     const sizes = Array.from({ length: this.teamCount }, () => 0);
     for (const player of this.players.values()) {
       if (player.id === playerId || !player.teamId) continue;
       const teamIndex = Number(player.teamId.slice("team-".length)) - 1;
       if (teamIndex >= 0 && teamIndex < sizes.length) sizes[teamIndex] = sizes[teamIndex]! + 1;
     }
-    const teamIndex = sizes.indexOf(Math.min(...sizes));
+    const teamIndex = this.randomSmallestTeamIndex(sizes);
     const player = this.players.get(playerId);
     if (player) this.players.set(playerId, { ...player, teamId: `team-${teamIndex + 1}`, teamName: `Team ${teamIndex + 1}` });
   }
   private assignTeams() {
-    if (this.teamCount === 0) {
+    if (this.teamCount === 0 || this.teamAssignmentMode === "manual") {
       for (const player of this.players.values()) {
         const { teamId: _teamId, teamName: _teamName, ...individual } = player;
         this.players.set(player.id, individual);
@@ -384,8 +404,13 @@ export class AuthoritativeSession {
       return;
     }
     const sizes = Array.from({ length: this.teamCount }, () => 0);
-    for (const player of this.players.values()) {
-      const teamIndex = sizes.indexOf(Math.min(...sizes));
+    const shuffledPlayers = [...this.players.values()];
+    for (let index = shuffledPlayers.length - 1; index > 0; index--) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [shuffledPlayers[index], shuffledPlayers[swapIndex]] = [shuffledPlayers[swapIndex]!, shuffledPlayers[index]!];
+    }
+    for (const player of shuffledPlayers) {
+      const teamIndex = this.randomSmallestTeamIndex(sizes);
       sizes[teamIndex] = sizes[teamIndex]! + 1;
       this.players.set(player.id, { ...player, teamId: `team-${teamIndex + 1}`, teamName: `Team ${teamIndex + 1}` });
     }

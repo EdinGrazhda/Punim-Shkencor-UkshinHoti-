@@ -47,7 +47,7 @@ assert.equal("score" in hiddenResult, false);
 assert.equal("xp" in hiddenResult, false);
 assert.equal(session.state().reveal, undefined);
 
-now += 2000;
+now += 3000;
 session.tick();
 assert.equal(session.state().phase, "reveal");
 assert.equal(session.playerResult(ada.id).correctOption, 1);
