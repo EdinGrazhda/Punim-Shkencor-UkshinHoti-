@@ -26,14 +26,28 @@ const persistedSessionSchema = z.object({
   playerTokenHashes: z.array(z.tuple([z.string(), z.string()])),
   studentAccounts: z.array(z.tuple([z.string(), z.string()])),
   currentIndex: z.number().int().nonnegative(),
+  playOrder: z.array(z.number().int().nonnegative()).optional(),
   deadlineAt: z.number().nonnegative(),
+  questionStartedAt: z.number().nonnegative().optional(),
+  pausedQuestionElapsed: z.number().nonnegative().optional(),
+  sessionDeadlineAt: z.number().nonnegative().default(0),
+  pausedSessionRemaining: z.number().nonnegative().default(0),
   revealUntil: z.number().nonnegative(),
   pausedRemaining: z.number().nonnegative(),
   phase: SessionPhase,
   lobbyLocked: z.boolean(),
 }).superRefine((state, context) => {
-  if (state.currentIndex >= state.snapshot.questions.length) {
+  if (state.snapshot.sessionMode !== "timed-repeat" && state.currentIndex >= state.snapshot.questions.length) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "currentIndex is outside the approved snapshot", path: ["currentIndex"] });
+  }
+  if (state.snapshot.sessionMode === "timed-repeat" && state.playOrder?.length && state.currentIndex >= state.playOrder.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "currentIndex is outside the timed question order", path: ["currentIndex"] });
+  }
+  for (const questionIndex of state.playOrder ?? []) {
+    if (questionIndex >= state.snapshot.questions.length) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "playOrder contains an unknown question", path: ["playOrder"] });
+      break;
+    }
   }
 });
 export type PersistedSession = z.infer<typeof persistedSessionSchema>;
@@ -54,14 +68,22 @@ export class AuthoritativeSession {
   private revealUntil = 0;
   private pausedRemaining = 0;
   private currentIndex = 0;
+  private playOrder: number[] = [];
   private deadlineAt = 0;
+  private questionStartedAt = 0;
+  private pausedQuestionElapsed = 0;
+  private sessionDeadlineAt = 0;
+  private pausedSessionRemaining = 0;
   private phase: PublicSessionState["phase"] = "lobby";
   private lobbyLocked = false;
 
   constructor(readonly code: string, snapshot: GameSnapshot, private now = () => Date.now(), restored?: PersistedSession) {
     this.snapshot = structuredClone(snapshot);
     if (restored) this.restore(restored);
-    else this.emit("session.created", { snapshotId: snapshot.id });
+    else {
+      this.playOrder = this.isTimedRepeat ? this.shuffledRound() : this.snapshot.questions.map((_, index) => index);
+      this.emit("session.created", { snapshotId: snapshot.id });
+    }
   }
 
   static restore(input: unknown, now = () => Date.now()) {
@@ -80,7 +102,13 @@ export class AuthoritativeSession {
     for (const [key, value] of state.studentAccounts) this.studentAccounts.set(key, value);
     for (const answer of state.answers) this.idempotency.set(`${answer.playerId}:${answer.idempotencyKey}`, { accepted: true });
     this.currentIndex = state.currentIndex;
+    this.playOrder = state.playOrder?.length ? [...state.playOrder] : this.snapshot.questions.map((_, index) => index);
     this.deadlineAt = state.deadlineAt;
+    const legacyQuestionTimeLimit = this.currentQuestion().timeLimitMs;
+    this.questionStartedAt = state.questionStartedAt ?? (state.deadlineAt > 0 ? state.deadlineAt - legacyQuestionTimeLimit : 0);
+    this.pausedQuestionElapsed = state.pausedQuestionElapsed ?? (state.phase === "paused" ? Math.max(0, legacyQuestionTimeLimit - state.pausedRemaining) : 0);
+    this.sessionDeadlineAt = state.sessionDeadlineAt;
+    this.pausedSessionRemaining = state.pausedSessionRemaining;
     this.revealUntil = state.revealUntil;
     this.pausedRemaining = state.pausedRemaining;
     this.phase = state.phase;
@@ -101,7 +129,12 @@ export class AuthoritativeSession {
       playerTokenHashes: [...this.playerTokenHashes],
       studentAccounts: [...this.studentAccounts],
       currentIndex: this.currentIndex,
+      playOrder: [...this.playOrder],
       deadlineAt: this.deadlineAt,
+      questionStartedAt: this.questionStartedAt,
+      pausedQuestionElapsed: this.pausedQuestionElapsed,
+      sessionDeadlineAt: this.sessionDeadlineAt,
+      pausedSessionRemaining: this.pausedSessionRemaining,
       revealUntil: this.revealUntil,
       pausedRemaining: this.pausedRemaining,
       phase: this.phase,
@@ -150,9 +183,9 @@ export class AuthoritativeSession {
 
   command(command: HostCommand) {
     if (command.type === "set-timer") { if (this.phase !== "lobby") throw new Error("invalid_phase"); for (const q of this.snapshot.questions) q.timeLimitMs = command.timeLimitMs; this.emit("timer.changed"); }
-    if (command.type === "start") { if (this.phase !== "lobby") throw new Error("invalid_phase"); this.phase = "question"; this.openQuestion(); }
-    if (command.type === "pause") { if (this.phase !== "question") throw new Error("invalid_phase"); this.pausedRemaining = Math.max(0, this.deadlineAt - this.now()); this.phase = "paused"; this.emit("session.paused"); }
-    if (command.type === "resume") { if (this.phase !== "paused") throw new Error("invalid_phase"); this.phase = "question"; this.deadlineAt = this.now() + this.pausedRemaining; this.emit("session.resumed"); }
+    if (command.type === "start") { if (this.phase !== "lobby") throw new Error("invalid_phase"); this.phase = "question"; if (this.isTimedRepeat) this.sessionDeadlineAt = this.now() + this.snapshot.sessionDurationMs!; this.openQuestion(); }
+    if (command.type === "pause") { if (this.phase !== "question") throw new Error("invalid_phase"); this.pausedRemaining = Math.max(0, this.deadlineAt - this.now()); this.pausedQuestionElapsed = Math.max(0, this.now() - this.questionStartedAt); if (this.isTimedRepeat) { this.pausedSessionRemaining = Math.max(0, this.sessionDeadlineAt - this.now()); this.sessionDeadlineAt = 0; } this.phase = "paused"; this.emit("session.paused"); }
+    if (command.type === "resume") { if (this.phase !== "paused") throw new Error("invalid_phase"); if (this.isTimedRepeat && this.pausedSessionRemaining <= 0) { this.endSession(); return; } this.phase = "question"; if (this.isTimedRepeat) { this.sessionDeadlineAt = this.now() + this.pausedSessionRemaining; this.pausedSessionRemaining = 0; } this.questionStartedAt = this.now() - this.pausedQuestionElapsed; this.pausedQuestionElapsed = 0; this.deadlineAt = this.now() + this.pausedRemaining; if (this.isTimedRepeat) this.deadlineAt = Math.min(this.deadlineAt, this.sessionDeadlineAt); this.emit("session.resumed"); }
     if (command.type === "end") { this.phase = "ended"; this.emit("session.ended"); }
     if (command.type === "lock-lobby") { this.lobbyLocked = command.locked; this.emit("lobby.locked", { locked: command.locked }); }
     if (command.type === "kick") { this.players.delete(command.playerId); this.playerTokens.delete(command.playerId); this.playerTokenHashes.delete(command.playerId); this.studentAccounts.delete(command.playerId); this.emit("player.kicked", { playerId: command.playerId }); }
@@ -169,11 +202,12 @@ export class AuthoritativeSession {
     if (this.now() >= this.deadlineAt) return reject("deadline_passed");
     if (!this.players.has(playerId)) return reject("player_not_found");
     if (this.answers.some(a => a.playerId === playerId && a.questionIndex === this.currentIndex)) return reject("already_answered");
-    const question = this.snapshot.questions[this.currentIndex]!;
+    const question = this.currentQuestion();
     if (!Number.isInteger(request.optionIndex) || request.optionIndex < 0 || request.optionIndex >= question.options.length) return reject("invalid_option");
     const previousStreak = this.streaks.get(playerId) ?? 0;
     const correct = request.optionIndex === question.correctOption;
-    const score = calculateScore(correct, this.now() - (this.deadlineAt - question.timeLimitMs), question.timeLimitMs, correct ? previousStreak + 1 : 0);
+    const effectiveTimeLimitMs = Math.max(1, this.deadlineAt - this.questionStartedAt);
+    const score = calculateScore(correct, this.now() - this.questionStartedAt, effectiveTimeLimitMs, correct ? previousStreak + 1 : 0);
     const answer = { playerId, questionIndex: this.currentIndex, optionIndex: request.optionIndex, submittedAt: this.now(), idempotencyKey: request.idempotencyKey, score };
     this.answers.push(answer); this.scores.set(playerId, (this.scores.get(playerId) ?? 0) + score.total); this.streaks.set(playerId, correct ? previousStreak + 1 : 0);
     this.xp.set(playerId, (this.xp.get(playerId) ?? 0) + (correct ? 100 : 10));
@@ -181,6 +215,10 @@ export class AuthoritativeSession {
   }
 
   tick(at = this.now()) {
+    if (this.isTimedRepeat && this.phase !== "lobby" && this.phase !== "paused" && this.phase !== "ended" && this.sessionDeadlineAt > 0 && at >= this.sessionDeadlineAt) {
+      this.endSession();
+      return;
+    }
     if (this.phase === "question") {
       const complete = this.players.size > 0 && [...this.players.keys()].every(id => {
         const answer = this.answers.find(a => a.playerId === id && a.questionIndex === this.currentIndex);
@@ -190,10 +228,43 @@ export class AuthoritativeSession {
     } else if (this.phase === "reveal" && at >= this.revealUntil) this.nextQuestion();
   }
 
-  private revealQuestion() { this.phase = "reveal"; this.revealUntil = this.now() + 2000; this.emit("question.revealed", { questionIndex: this.currentIndex }); }
-  nextQuestion() { if (this.phase !== "reveal") throw new Error("invalid_phase"); if (this.currentIndex + 1 >= this.snapshot.questions.length) { this.phase = "ended"; this.emit("session.ended"); } else { this.currentIndex += 1; this.openQuestion(); } }
+  private revealQuestion() {
+    if (this.isTimedRepeat && this.sessionDeadlineAt > 0 && this.now() >= this.sessionDeadlineAt) { this.endSession(); return; }
+    this.phase = "reveal";
+    this.revealUntil = this.now() + 2000;
+    this.emit("question.revealed", { questionIndex: this.currentIndex });
+  }
+  nextQuestion() {
+    if (this.phase !== "reveal") throw new Error("invalid_phase");
+    if (this.isTimedRepeat && this.sessionDeadlineAt > 0 && this.now() >= this.sessionDeadlineAt) { this.endSession(); return; }
+    const nextIndex = this.currentIndex + 1;
+    if (!this.isTimedRepeat && nextIndex >= this.snapshot.questions.length) { this.endSession(); return; }
+    if (this.isTimedRepeat && nextIndex >= this.playOrder.length) this.appendShuffledRound();
+    this.currentIndex = nextIndex;
+    this.openQuestion();
+  }
 
-  state(): PublicSessionState { const question = this.snapshot.questions[this.currentIndex]; return PublicSessionState.parse({ code: this.code, questionCount: this.snapshot.questions.length, phase: this.phase, lobbyLocked: this.lobbyLocked, players: [...this.players.values()], question: question && this.phase !== "lobby" && this.phase !== "ended" ? { index: this.currentIndex, prompt: question.prompt, options: question.options, deadlineAt: this.deadlineAt, timeLimitMs: question.timeLimitMs } : undefined, reveal: this.phase === "reveal" && question ? { correctOption: question.correctOption, explanation: question.explanation } : undefined, questionIndex: this.currentIndex, answeredCount: this.answers.filter(a => a.questionIndex === this.currentIndex).length }); }
+  state(): PublicSessionState {
+    const question = this.currentQuestion();
+    return PublicSessionState.parse({
+      code: this.code,
+      questionCount: this.snapshot.questions.length,
+      ...(this.isTimedRepeat ? {
+        sessionMode: "timed-repeat",
+        sessionDurationMs: this.snapshot.sessionDurationMs,
+        ...(this.sessionDeadlineAt > 0 && this.phase !== "ended" ? { sessionDeadlineAt: this.sessionDeadlineAt } : {}),
+        sessionRemainingMs: this.phase === "paused" ? this.pausedSessionRemaining : this.phase === "ended" ? 0 : this.sessionDeadlineAt > 0 ? Math.max(0, this.sessionDeadlineAt - this.now()) : this.snapshot.sessionDurationMs,
+      } : {}),
+      phase: this.phase,
+      lobbyLocked: this.lobbyLocked,
+      players: [...this.players.values()],
+      question: question && this.phase !== "lobby" && this.phase !== "ended" ? { index: this.currentIndex, prompt: question.prompt, options: question.options, deadlineAt: this.deadlineAt, timeLimitMs: Math.max(1, this.deadlineAt - this.questionStartedAt), ...(this.phase === "paused" ? { remainingMs: this.pausedRemaining } : {}) } : undefined,
+      reveal: this.phase === "reveal" && question ? { correctOption: question.correctOption, explanation: question.explanation } : undefined,
+      questionIndex: this.currentIndex,
+      answeredCount: this.answers.filter(a => a.questionIndex === this.currentIndex).length,
+    });
+  }
+  get questionsPlayed() { return this.events.some(event => event.type === "question.opened") ? this.currentIndex + 1 : 0; }
   score(playerId: string) { return this.scores.get(playerId) ?? 0; }
   playerResult(playerId: string) {
     const answer = this.answers.find(a => a.playerId === playerId && a.questionIndex === this.currentIndex);
@@ -208,12 +279,13 @@ export class AuthoritativeSession {
       questionXp: answer ? (answer.score.base ? 100 : 10) : 0,
       questionScore: answer?.score.total ?? 0, correct: Boolean(answer?.score.base),
       answered: Boolean(answer), selectedOption: answer?.optionIndex,
-      correctOption: answer ? this.snapshot.questions[this.currentIndex]!.correctOption : undefined,
+      correctOption: answer ? this.currentQuestion().correctOption : undefined,
       streak: this.streaks.get(playerId) ?? 0 };
   }
   answerBreakdown(playerId: string) {
     if (!this.players.has(playerId)) throw new Error("player_not_found");
-    return this.snapshot.questions.map((question, questionIndex) => {
+    return this.playOrder.slice(0, Math.min(this.questionsPlayed, this.playOrder.length)).map((sourceQuestionIndex, questionIndex) => {
+      const question = this.snapshot.questions[sourceQuestionIndex]!;
       const answer = this.answers.find(item => item.playerId === playerId && item.questionIndex === questionIndex);
       return {
         questionIndex,
@@ -229,7 +301,34 @@ export class AuthoritativeSession {
     });
   }
   leaderboard() { return [...this.players.values()].map(p => ({ id: p.id, displayName: p.displayName, score: this.score(p.id) })).sort((a,b) => b.score - a.score); }
-  private openQuestion() { this.phase = "question"; this.deadlineAt = this.now() + this.snapshot.questions[this.currentIndex]!.timeLimitMs; this.emit("question.opened", { questionIndex: this.currentIndex, deadlineAt: this.deadlineAt }); }
+  private get isTimedRepeat() { return this.snapshot.sessionMode === "timed-repeat"; }
+  private currentQuestion() { return this.snapshot.questions[this.playOrder[this.currentIndex] ?? 0]!; }
+  private shuffledRound() {
+    const questions = this.snapshot.questions.map((_, index) => index);
+    for (let index = questions.length - 1; index > 0; index--) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [questions[index], questions[swapIndex]] = [questions[swapIndex]!, questions[index]!];
+    }
+    return questions;
+  }
+  private appendShuffledRound() {
+    const round = this.shuffledRound();
+    const previousQuestion = this.playOrder.at(-1);
+    if (round.length > 1 && round[0] === previousQuestion) {
+      const swapIndex = round.findIndex(questionIndex => questionIndex !== previousQuestion);
+      [round[0], round[swapIndex]] = [round[swapIndex]!, round[0]!];
+    }
+    this.playOrder.push(...round);
+  }
+  private openQuestion() {
+    this.phase = "question";
+    this.questionStartedAt = this.now();
+    const question = this.currentQuestion();
+    this.deadlineAt = this.questionStartedAt + question.timeLimitMs;
+    if (this.isTimedRepeat && this.sessionDeadlineAt > 0) this.deadlineAt = Math.min(this.deadlineAt, this.sessionDeadlineAt);
+    this.emit("question.opened", { questionIndex: this.currentIndex, deadlineAt: this.deadlineAt });
+  }
+  private endSession() { if (this.phase === "ended") return; this.phase = "ended"; this.emit("session.ended"); }
   private emit(type: string, payload?: unknown) { this.events.push({ id: randomUUID(), at: this.now(), type, payload }); }
 }
 

@@ -64,7 +64,7 @@ export function createRuntimeHost(
   };
   const hostResults = (session: AuthoritativeSession) => ({
     leaderboard: session.leaderboard().map(player => ({ ...player, answers: session.answerBreakdown(player.id) })),
-    questions: session.snapshot.questions.length,
+    questions: session.questionsPlayed,
   });
   const publish = (session: AuthoritativeSession) => io.to(session.code).emit("session:state", session.state());
   const dirtySessions = new Set<string>();
@@ -329,7 +329,7 @@ export function createRuntimeHost(
     catch (error) { return errorResponse(reply, error); }
   });
   app.get<{ Params: CodeParams }>("/api/v1/sessions/:code/results", async (request, reply) => {
-    try { const session = getSession(request.params.code); if (session.state().phase !== "ended") return reply.code(409).send({ error: "results_not_ready" }); return reply.send({ leaderboard: session.leaderboard(), questions: session.snapshot.questions.length }); }
+    try { const session = getSession(request.params.code); if (session.state().phase !== "ended") return reply.code(409).send({ error: "results_not_ready" }); return reply.send({ leaderboard: session.leaderboard(), questions: session.questionsPlayed }); }
     catch (error) { return errorResponse(reply, error); }
   });
   app.get<{ Params: CodeParams }>("/api/v1/sessions/:code/host/results", async (request, reply) => {

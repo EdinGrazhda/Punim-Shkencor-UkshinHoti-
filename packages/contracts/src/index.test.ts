@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gameSnapshotFromApprovedQuestions, generatedQuestionSchema, reviewQuestionSaveSchema } from "./index.js";
+import { GameSnapshot, gameSnapshotFromApprovedQuestions, generatedQuestionSchema, reviewQuestionSaveSchema } from "./index.js";
 
 describe("teacher quiz contracts", () => {
   it("accepts a question with exactly one correct answer and evidence", () => {
@@ -30,5 +30,13 @@ describe("teacher quiz contracts", () => {
     expect(gameSnapshotFromApprovedQuestions({
       id: "quiz-2", title: "Without explanation", questions: [{ id: "q-2", prompt: "Question?", options: [{ text: "A", isCorrect: true }, { text: "B", isCorrect: false }] }],
     })).toEqual({ id: "quiz-2", title: "Without explanation", questions: [{ id: "q-2", prompt: "Question?", options: ["A", "B"], correctOption: 0, timeLimitMs: 30_000 }] });
+  });
+
+  it("keeps existing snapshots fixed by default and requires a duration for repeat mode", () => {
+    const fixed = { id: "quiz-fixed", title: "Fixed", questions: [{ id: "q1", prompt: "Question?", options: ["A", "B"], correctOption: 0 }] };
+    expect(GameSnapshot.parse(fixed).sessionMode).toBeUndefined();
+    expect(GameSnapshot.safeParse({ ...fixed, sessionMode: "timed-repeat" }).success).toBe(false);
+    expect(GameSnapshot.parse({ ...fixed, sessionMode: "timed-repeat", sessionDurationMs: 10 * 60_000 })).toMatchObject({ sessionMode: "timed-repeat", sessionDurationMs: 10 * 60_000 });
+    expect(GameSnapshot.safeParse({ ...fixed, sessionMode: "timed-repeat", sessionDurationMs: 30_000 }).success).toBe(false);
   });
 });

@@ -104,10 +104,22 @@ export const ApprovedQuestion = z.object({
 });
 export type ApprovedQuestion = z.infer<typeof ApprovedQuestion>;
 
+export const sessionPlayModeSchema = z.enum(["fixed", "timed-repeat"]);
+export type SessionPlayMode = z.infer<typeof sessionPlayModeSchema>;
+export const MIN_SESSION_DURATION_MS = 60_000;
+export const MAX_SESSION_DURATION_MS = 120 * 60_000;
+
 export const GameSnapshot = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   questions: z.array(ApprovedQuestion).min(1),
+  // Optional to preserve snapshots created before configurable session modes.
+  sessionMode: sessionPlayModeSchema.optional(),
+  sessionDurationMs: z.number().int().min(MIN_SESSION_DURATION_MS).max(MAX_SESSION_DURATION_MS).optional(),
+}).superRefine((snapshot, context) => {
+  if (snapshot.sessionMode === "timed-repeat" && snapshot.sessionDurationMs === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Timed repeat sessions require a duration", path: ["sessionDurationMs"] });
+  }
 });
 export type GameSnapshot = z.infer<typeof GameSnapshot>;
 
@@ -154,6 +166,7 @@ export const PublicQuestion = z.object({
   options: z.array(z.string()),
   deadlineAt: z.number().int().positive(),
   timeLimitMs: z.number().int().positive(),
+  remainingMs: z.number().int().nonnegative().optional(),
 });
 export type PublicQuestion = z.infer<typeof PublicQuestion>;
 
@@ -179,6 +192,10 @@ export type StudentPreviewAnswerResult = z.infer<typeof StudentPreviewAnswerResu
 export const PublicSessionState = z.object({
   code: z.string().length(6),
   questionCount: z.number().int().positive(),
+  sessionMode: sessionPlayModeSchema.optional(),
+  sessionDurationMs: z.number().int().positive().optional(),
+  sessionDeadlineAt: z.number().int().positive().optional(),
+  sessionRemainingMs: z.number().int().nonnegative().optional(),
   phase: SessionPhase,
   lobbyLocked: z.boolean(),
   players: z.array(Player),

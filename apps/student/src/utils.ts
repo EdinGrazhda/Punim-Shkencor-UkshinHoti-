@@ -1,6 +1,9 @@
 import { clsx, type ClassValue } from "clsx";
 export const cn = (...values: ClassValue[]) => clsx(values);
-export const formatTime = (ms: number) => `0:${String(Math.ceil(Math.max(0, ms) / 1000)).padStart(2, "0")}`;
+export const formatTime = (ms: number) => {
+  const seconds = Math.ceil(Math.max(0, ms) / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+};
 
 export function createUuid(): string {
   const browserCrypto = globalThis.crypto;

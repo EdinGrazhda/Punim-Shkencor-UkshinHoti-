@@ -344,10 +344,12 @@ export function Student() {
       : null;
   const locked = selected !== null || currentResult?.answered;
   const totalPlayers = state?.players.length ?? 0;
-  const remaining = question ? Math.max(0, question.deadlineAt - now) : 0;
-  const elapsedPercent = question
-    ? (remaining / question.timeLimitMs) * 100
-    : 0;
+  const remaining = question ? phase === "paused" ? question.remainingMs ?? Math.max(0, question.deadlineAt - now) : Math.max(0, question.deadlineAt - now) : 0;
+  const gameRemaining = state?.sessionDeadlineAt ? Math.max(0, state.sessionDeadlineAt - now) : state?.sessionRemainingMs ?? 0;
+  const progressPercent = state?.sessionMode === "timed-repeat" && state.sessionDurationMs
+    ? ((state.sessionDurationMs - gameRemaining) / state.sessionDurationMs) * 100
+    : question ? (question.index / state.questionCount) * 100 : 0;
+  const answerRemainingPercent = question ? (remaining / question.timeLimitMs) * 100 : 0;
   const myRank =
     leaderboard && identity
       ? leaderboard.leaderboard.findIndex((p) => p.id === identity.id) + 1
@@ -446,16 +448,15 @@ export function Student() {
               <div>
                 <Badge className="light-badge">CYBER SECURITY</Badge>
                 <p>
-                  Question {question.index + 1} of {state.questionCount}
+                  {state.sessionMode === "timed-repeat" ? `Question ${question.index + 1} · repeat mode` : `Question ${question.index + 1} of ${state.questionCount}`}
                 </p>
               </div>
               <div className="score-pills">
-                <span className="timer-pill">
-                  {formatTime(remaining)}
-                </span>
+                {state.sessionMode === "timed-repeat" && <span className="timer-pill game-countdown">Game {formatTime(gameRemaining)}</span>}
+                <span className="timer-pill" aria-label="Time to answer">Answer {formatTime(remaining)}</span>
               </div>
             </div>
-            <Progress value={(question.index / state.questionCount) * 100} />
+            <Progress value={progressPercent} />
             <div
               className={`question-content ${feedback?.correct ? "showing-reward" : ""}`}
             >
@@ -521,7 +522,7 @@ export function Student() {
                 )}
               </div>
             </div>
-            <Progress value={elapsedPercent} className="timer-progress" />
+            <Progress value={answerRemainingPercent} className="timer-progress" />
           </motion.main>
         )}
         {phase === "reveal" && (
@@ -566,16 +567,14 @@ export function Student() {
             <Card className="mission-card">
               <div>
                 <strong>Mission progress</strong>
-                <small>Answer {state?.questionCount ?? 0} questions</small>
+                <small>{state?.sessionMode === "timed-repeat" ? "Questions answered before time runs out" : `Answer ${state?.questionCount ?? 0} questions`}</small>
               </div>
               <span>
-                {(state?.questionIndex ?? 0) + 1} / {state?.questionCount ?? 0}
+                {state?.sessionMode === "timed-repeat" ? `Question ${(state?.questionIndex ?? 0) + 1}` : `${(state?.questionIndex ?? 0) + 1} / ${state?.questionCount ?? 0}`}
               </span>
               <Progress
                 value={
-                  (((state?.questionIndex ?? 0) + 1) /
-                    (state?.questionCount ?? 1)) *
-                  100
+                  state?.sessionMode === "timed-repeat" ? progressPercent : (((state?.questionIndex ?? 0) + 1) / (state?.questionCount ?? 1)) * 100
                 }
               />
             </Card>

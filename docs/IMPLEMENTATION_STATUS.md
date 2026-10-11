@@ -69,3 +69,10 @@ See [TEAM_TASKS.md](TEAM_TASKS.md), [CROSS_BRANCH_ALIGNMENT.md](CROSS_BRANCH_ALI
 
 - Moved teacher logout from the fixed top bar into the sidebar footer, directly below the teacher status.
 - Added one atomic “Approve all & save quiz” action. It approves every question and the quiz together only when each question has source evidence; individual review and approval remain available.
+
+# Configurable classroom session modes (2026-10-11)
+
+- Added per-session host settings for a fixed question count (default 10, capped at the approved quiz size) or a timed shuffle/repeat mode (default 10 minutes, configurable from 1–120 minutes).
+- Preserved the existing per-question response timer in both modes. Timed-repeat sessions shuffle each full round, avoid a same-question repeat at round boundaries when the pool has multiple questions, and stop on the authoritative runtime deadline. Pause/resume preserves the overall remaining time.
+- Student and projector views show the overall countdown; repeated occurrences are tracked separately for answer validation, scoring, and results. Fixed mode remains the default for older snapshots.
+- Verification: shared contracts, runtime host, and student UI typechecks passed; shared-contract tests (5) and runtime-host tests (7 passed, 1 PostgreSQL-only skipped) passed. Student production build passed with the existing large-chunk warning. PostgreSQL-backed and LAN classroom acceptance are still required before main integration.
