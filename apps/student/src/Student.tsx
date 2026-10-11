@@ -599,11 +599,11 @@ export function Student() {
             <Badge className="light-badge">
               QUESTION {(state?.questionIndex ?? 0) + 1} REVEAL
             </Badge>
-            <h1>{result?.correct ? "Excellent work!" : "Keep exploring!"}</h1>
+            <h1>{feedback?.answered ? feedback.correct ? "Excellent work!" : "Keep exploring!" : "Question revealed"}</h1>
             <p>
-              {result?.correct
+              {feedback?.answered && feedback.correct
                 ? "You found the strongest answer."
-                : "Every mission is a chance to learn."}
+                : feedback?.answered ? "Every mission is a chance to learn." : "The correct answer is now available to review."}
             </p>
             <div className="feedback-stats">
               <span>
@@ -619,6 +619,7 @@ export function Student() {
               <strong>
                 {state?.question?.options[state?.reveal?.correctOption ?? 0]}
               </strong>
+              {feedback?.answered && <p className={`student-answer-verdict ${feedback.correct ? "correct" : "incorrect"}`} role="status">{feedback.correct ? "You selected the correct answer." : `Your answer, “${state?.question?.options[feedback.selectedOption ?? -1] ?? "unknown"}”, was incorrect. The correct answer is shown above.`}</p>}
               <p>
                 {state?.reveal?.explanation ??
                   "The teacher will explain this answer."}

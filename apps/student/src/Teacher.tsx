@@ -35,6 +35,7 @@ import {
 import type {
   GameSnapshot,
   HostCommand,
+  Player,
   PublicSessionState,
 } from "@ckadinti/contracts";
 import {
@@ -63,6 +64,63 @@ const nav: { id: Tab; label: string; Icon: typeof Home }[] = [
   { id: "analytics", label: "Analytics", Icon: BarChart3 },
   { id: "settings", label: "Settings", Icon: Settings2 },
 ];
+
+function LobbyPlayerAssignment({
+  player,
+  teamCount,
+  busy,
+  onSaveName,
+  onAssignTeam,
+}: {
+  player: Player;
+  teamCount: number;
+  busy: boolean;
+  onSaveName: (displayName: string) => void;
+  onAssignTeam: (teamIndex: number) => void;
+}) {
+  const [displayName, setDisplayName] = useState(player.displayName);
+  useEffect(() => setDisplayName(player.displayName), [player.displayName]);
+  const normalizedName = displayName.trim().replace(/\s+/gu, " ");
+  const currentTeam = Number(player.teamId?.slice("team-".length)) || 1;
+
+  return (
+    <div className="player-assignment-controls">
+      <label className="player-assignment-field">
+        <span>Student name</span>
+        <input
+          aria-label={`Name for ${player.displayName}`}
+          maxLength={32}
+          value={displayName}
+          disabled={busy}
+          onChange={(event) => setDisplayName(event.target.value)}
+        />
+      </label>
+      <Button
+        className="player-assignment-save"
+        variant="outline"
+        disabled={busy || !normalizedName || normalizedName === player.displayName}
+        onClick={() => onSaveName(normalizedName)}
+      >
+        Save name
+      </Button>
+      {teamCount > 0 && (
+        <label className="player-assignment-field">
+          <span>Team</span>
+          <select
+            aria-label={`Team for ${player.displayName}`}
+            value={currentTeam}
+            disabled={busy}
+            onChange={(event) => onAssignTeam(Number(event.target.value))}
+          >
+            {Array.from({ length: teamCount }, (_, index) => index + 1).map((teamIndex) => (
+              <option key={teamIndex} value={teamIndex}>Team {teamIndex}</option>
+            ))}
+          </select>
+        </label>
+      )}
+    </div>
+  );
+}
 
 export function Teacher({ onLogout }: { onLogout: () => void }) {
   const [params, setParams] = useSearchParams();
@@ -697,35 +755,46 @@ export function Teacher({ onLogout }: { onLogout: () => void }) {
                       </div>
                       {state.players.length ? (
                         state.players.map((p, i) => (
-                          <div className="activity-row" key={p.id}>
-                            <Emblem
-                              name={
-                                ["Comet", "Prism", "Orbit", "Spark", "Shield"][
-                                  i % 5
-                                ]!
-                              }
-                            />
-                            <div>
-                              <strong>{p.displayName}</strong>
-                              <small>{p.connected ? "Connected" : "Offline · retrying"}</small>
-                              {p.teamName && <Badge className="team-pill">{p.teamName}</Badge>}
+                          <div className="activity-player-entry" key={p.id}>
+                            <div className="activity-row">
+                              <Emblem
+                                name={
+                                  ["Comet", "Prism", "Orbit", "Spark", "Shield"][
+                                    i % 5
+                                  ]!
+                                }
+                              />
+                              <div>
+                                <strong>{p.displayName}</strong>
+                                <small>{p.connected ? "Connected" : "Offline · retrying"}</small>
+                                {p.teamName && <Badge className="team-pill">{p.teamName}</Badge>}
+                              </div>
+                              <Badge className="answer-state">
+                                {!p.connected
+                                  ? "Offline"
+                                  : state.phase === "lobby"
+                                    ? "Ready"
+                                    : state.phase === "question" || state.phase === "paused"
+                                      ? p.answered ? "Answered" : "Waiting"
+                                      : state.phase}
+                              </Badge>
+                              <ConfirmDialog
+                                title={`Remove ${p.displayName}?`}
+                                description="This student will be removed from the current game and cannot reconnect to this player session."
+                                confirm="Remove student"
+                                onConfirm={() => void command({ type: "kick", playerId: p.id })}
+                                trigger={<button type="button" className="kick-button" title={`Remove ${p.displayName}`} aria-label={`Remove ${p.displayName}`} disabled={busy}><X size={15} /></button>}
+                              />
                             </div>
-                            <Badge className="answer-state">
-                              {!p.connected
-                                ? "Offline"
-                                : state.phase === "lobby"
-                                  ? "Ready"
-                                  : state.phase === "question" || state.phase === "paused"
-                                    ? p.answered ? "Answered" : "Waiting"
-                                    : state.phase}
-                            </Badge>
-                            <ConfirmDialog
-                              title={`Remove ${p.displayName}?`}
-                              description="This student will be removed from the current game and cannot reconnect to this player session."
-                              confirm="Remove student"
-                              onConfirm={() => void command({ type: "kick", playerId: p.id })}
-                              trigger={<button type="button" className="kick-button" title={`Remove ${p.displayName}`} aria-label={`Remove ${p.displayName}`} disabled={busy}><X size={15} /></button>}
-                            />
+                            {state.phase === "lobby" && (
+                              <LobbyPlayerAssignment
+                                player={p}
+                                teamCount={state.teamCount ?? 0}
+                                busy={busy}
+                                onSaveName={(displayName) => void command({ type: "rename-player", playerId: p.id, displayName })}
+                                onAssignTeam={(teamIndex) => void command({ type: "assign-player-team", playerId: p.id, teamIndex })}
+                              />
+                            )}
                           </div>
                         ))
                       ) : (
@@ -744,7 +813,7 @@ export function Teacher({ onLogout }: { onLogout: () => void }) {
                               <option value={0}>Individual play</option>
                               {[2, 3, 4, 5, 6].map(teamCount => <option key={teamCount} value={teamCount}>{teamCount} balanced teams</option>)}
                             </select>
-                            <small>New players are placed on the smallest team. Teams are fixed when the game starts.</small>
+                            <small>Teams balance when selected; you can move students between teams below. New students join the smallest team.</small>
                           </label>
                           <label className="classroom-setting">
                             Nickname policy
@@ -752,7 +821,7 @@ export function Teacher({ onLogout }: { onLogout: () => void }) {
                               <option value="student-choice">Students choose nicknames</option>
                               <option value="assigned">Assign classroom aliases</option>
                             </select>
-                            <small>Assigned aliases replace entered names with classroom-safe names, including players already waiting.</small>
+                            <small>Assigned aliases replace entered names. You can then edit each student’s name below before starting.</small>
                           </label>
                           <label className="question-timer-setting">
                             Seconds per question

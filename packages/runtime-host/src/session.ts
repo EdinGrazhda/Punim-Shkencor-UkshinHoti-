@@ -166,7 +166,7 @@ export class AuthoritativeSession {
     const name = this.nicknameMode === "assigned" ? classroomNickname(this.nicknameCounter++) : this.validateNickname(displayName);
     let player = Player.parse({ id: playerId, displayName: name, emblem, connected: true, joinedAt: this.now() });
     this.players.set(player.id, player);
-    this.assignTeams();
+    this.assignPlayerToSmallestTeam(player.id);
     player = this.players.get(player.id)!;
     this.scores.set(player.id, 0);
     this.streaks.set(player.id, 0);
@@ -212,7 +212,24 @@ export class AuthoritativeSession {
     if (command.type === "lock-lobby") { this.lobbyLocked = command.locked; this.emit("lobby.locked", { locked: command.locked }); }
     if (command.type === "set-team-count") { if (this.phase !== "lobby") throw new Error("invalid_phase"); this.teamCount = command.teamCount; this.assignTeams(); this.emit("teams.changed", { teamCount: this.teamCount }); }
     if (command.type === "set-nickname-mode") { if (this.phase !== "lobby") throw new Error("invalid_phase"); this.nicknameMode = command.nicknameMode; if (this.nicknameMode === "assigned") { let index = 0; for (const player of this.players.values()) this.players.set(player.id, { ...player, displayName: classroomNickname(index++) }); this.nicknameCounter = index; } this.emit("nicknames.changed", { nicknameMode: this.nicknameMode }); }
-    if (command.type === "kick") { this.players.delete(command.playerId); this.playerTokens.delete(command.playerId); this.playerTokenHashes.delete(command.playerId); this.studentAccounts.delete(command.playerId); this.emit("player.kicked", { playerId: command.playerId }); if (this.phase === "lobby") this.assignTeams(); }
+    if (command.type === "rename-player") {
+      if (this.phase !== "lobby") throw new Error("invalid_phase");
+      const player = this.players.get(command.playerId);
+      if (!player) throw new Error("player_not_found");
+      const displayName = this.validateNickname(command.displayName, player.id);
+      this.players.set(player.id, { ...player, displayName });
+      this.emit("player.renamed", { playerId: player.id });
+    }
+    if (command.type === "assign-player-team") {
+      if (this.phase !== "lobby") throw new Error("invalid_phase");
+      if (this.teamCount === 0) throw new Error("teams_disabled");
+      if (command.teamIndex > this.teamCount) throw new Error("team_not_found");
+      const player = this.players.get(command.playerId);
+      if (!player) throw new Error("player_not_found");
+      this.players.set(player.id, { ...player, teamId: `team-${command.teamIndex}`, teamName: `Team ${command.teamIndex}` });
+      this.emit("player.team-assigned", { playerId: player.id, teamIndex: command.teamIndex });
+    }
+    if (command.type === "kick") { this.players.delete(command.playerId); this.playerTokens.delete(command.playerId); this.playerTokenHashes.delete(command.playerId); this.studentAccounts.delete(command.playerId); this.emit("player.kicked", { playerId: command.playerId }); }
     if (command.type === "reveal") { if (this.phase !== "question") throw new Error("invalid_phase"); this.revealQuestion(); }
     if (command.type === "next") this.nextQuestion();
   }
@@ -338,13 +355,25 @@ export class AuthoritativeSession {
     }
     return [...teams.values()].sort((left, right) => right.score - left.score || left.name.localeCompare(right.name));
   }
-  private validateNickname(displayName?: string) {
+  private validateNickname(displayName?: string, exceptPlayerId?: string) {
     const name = (displayName ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ");
     if (!name) throw new Error("nickname_required");
     if (name.length > 32 || /[\u0000-\u001f\u007f<>]/u.test(name) || /(?:https?:\/\/|www\.)/iu.test(name)) throw new Error("nickname_invalid");
     const normalized = name.toLocaleLowerCase("en-US");
-    if ([...this.players.values()].some(player => player.displayName.normalize("NFKC").toLocaleLowerCase("en-US") === normalized)) throw new Error("nickname_taken");
+    if ([...this.players.values()].some(player => player.id !== exceptPlayerId && player.displayName.normalize("NFKC").toLocaleLowerCase("en-US") === normalized)) throw new Error("nickname_taken");
     return name;
+  }
+  private assignPlayerToSmallestTeam(playerId: string) {
+    if (this.teamCount === 0) return;
+    const sizes = Array.from({ length: this.teamCount }, () => 0);
+    for (const player of this.players.values()) {
+      if (player.id === playerId || !player.teamId) continue;
+      const teamIndex = Number(player.teamId.slice("team-".length)) - 1;
+      if (teamIndex >= 0 && teamIndex < sizes.length) sizes[teamIndex] = sizes[teamIndex]! + 1;
+    }
+    const teamIndex = sizes.indexOf(Math.min(...sizes));
+    const player = this.players.get(playerId);
+    if (player) this.players.set(playerId, { ...player, teamId: `team-${teamIndex + 1}`, teamName: `Team ${teamIndex + 1}` });
   }
   private assignTeams() {
     if (this.teamCount === 0) {

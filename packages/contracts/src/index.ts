@@ -161,6 +161,8 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("lock-lobby"), locked: z.boolean() }),
   z.object({ type: z.literal("set-team-count"), teamCount: z.union([z.literal(0), z.number().int().min(2).max(6)]) }),
   z.object({ type: z.literal("set-nickname-mode"), nicknameMode: nicknameModeSchema }),
+  z.object({ type: z.literal("rename-player"), playerId: Player.shape.id, displayName: Player.shape.displayName }),
+  z.object({ type: z.literal("assign-player-team"), playerId: Player.shape.id, teamIndex: z.number().int().min(1).max(6) }),
   z.object({ type: z.literal("kick"), playerId: z.string().min(1) }),
   z.object({ type: z.literal("reveal") }),
   z.object({ type: z.literal("next") }),

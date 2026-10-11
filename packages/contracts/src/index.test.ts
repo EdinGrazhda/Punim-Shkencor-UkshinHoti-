@@ -8,6 +8,10 @@ describe("teacher quiz contracts", () => {
     expect(HostCommand.safeParse({ type: "set-team-count", teamCount: 1 }).success).toBe(false);
     expect(HostCommand.safeParse({ type: "set-nickname-mode", nicknameMode: "assigned" }).success).toBe(true);
     expect(HostCommand.safeParse({ type: "set-nickname-mode", nicknameMode: "unknown" }).success).toBe(false);
+    expect(HostCommand.safeParse({ type: "rename-player", playerId: "student-1", displayName: "Ada Lovelace" }).success).toBe(true);
+    expect(HostCommand.safeParse({ type: "assign-player-team", playerId: "student-1", teamIndex: 2 }).success).toBe(true);
+    expect(HostCommand.safeParse({ type: "assign-player-team", playerId: "student-1", teamIndex: 0 }).success).toBe(false);
+    expect(HostCommand.safeParse({ type: "assign-player-team", playerId: "student-1", teamIndex: 7 }).success).toBe(false);
   });
 
   it("accepts a question with exactly one correct answer and evidence", () => {

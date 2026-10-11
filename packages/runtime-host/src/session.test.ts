@@ -44,6 +44,28 @@ describe("authoritative session", () => {
     expect(() => session.command({ type: "set-team-count", teamCount: 3 })).toThrow("invalid_phase");
   });
 
+  it("lets teachers rename students and manually assign teams in the lobby", () => {
+    const session = new AuthoritativeSession("ABC123", snapshot);
+    session.command({ type: "set-team-count", teamCount: 2 });
+    const ada = session.join("Ada", "player-manual-1");
+    const ben = session.join("Ben", "player-manual-2");
+    const cy = session.join("Cy", "player-manual-3");
+
+    session.command({ type: "rename-player", playerId: ada.id, displayName: "Ada L." });
+    session.command({ type: "assign-player-team", playerId: ada.id, teamIndex: 2 });
+    expect(session.state().players.find(player => player.id === ada.id)).toMatchObject({ displayName: "Ada L.", teamId: "team-2", teamName: "Team 2" });
+    expect(() => session.command({ type: "rename-player", playerId: cy.id, displayName: "  ada l.  " })).toThrow("nickname_taken");
+    expect(() => session.command({ type: "assign-player-team", playerId: cy.id, teamIndex: 3 })).toThrow("team_not_found");
+
+    const dee = session.join("Dee", "player-manual-4");
+    expect(session.players.get(ada.id)?.teamId).toBe("team-2");
+    expect(session.players.get(dee.id)?.teamId).toBe("team-1");
+
+    session.command({ type: "start" });
+    expect(() => session.command({ type: "rename-player", playerId: ben.id, displayName: "Ben B." })).toThrow("invalid_phase");
+    expect(() => session.command({ type: "assign-player-team", playerId: ben.id, teamIndex: 1 })).toThrow("invalid_phase");
+  });
+
   it("freezes the approved snapshot and rejects duplicate answers", () => {
     let now = 1000; const session = new AuthoritativeSession("ABC123", snapshot, () => now); const player = session.join("Ada", "player-1"); session.command({ type: "start" });
     const request = { questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000001" };
