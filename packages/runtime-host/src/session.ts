@@ -1,15 +1,25 @@
 import { createHash, randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
-import { ApprovedQuestion, AnswerRequest, GameSnapshot, HostCommand, Player, PublicSessionState, ScoreBreakdown, SessionPhase, calculateScore } from "@ckadinti/contracts";
+import { ApprovedQuestion, AnswerRequest, GameSnapshot, HostCommand, Player, PublicSessionState, ScoreBreakdown, SessionPhase, calculateScore, type NicknameMode } from "@ckadinti/contracts";
 import { z } from "zod";
 
 export type SessionEvent = { id: string; at: number; type: string; playerId?: string; payload?: unknown };
 export type AnswerResult = { accepted: boolean; duplicate?: boolean; reason?: string };
 type Answer = { playerId: string; questionIndex: number; optionIndex: number; submittedAt: number; idempotencyKey: string; score: ScoreBreakdown };
+const nicknameWords = ["Curious Comet", "Kind Koala", "Brave Badger", "Bright Bee", "Swift Sparrow", "Clever Fox", "Calm Panda", "Bold Dolphin", "Mighty Maple", "Silver Star", "Happy Heron", "Cosmic Cat"];
+
+function classroomNickname(index: number) {
+  const word = nicknameWords[index % nicknameWords.length]!;
+  const number = Math.floor(index / nicknameWords.length) + 1;
+  return `${word} ${String(number).padStart(2, "0")}`;
+}
 
 const persistedSessionSchema = z.object({
   version: z.literal(1),
   code: z.string().length(6),
   snapshot: GameSnapshot,
+  teamCount: z.number().int().min(0).max(6).default(0),
+  nicknameMode: z.enum(["student-choice", "assigned"]).default("student-choice"),
+  nicknameCounter: z.number().int().nonnegative().default(0),
   players: z.array(Player),
   events: z.array(z.object({ id: z.string(), at: z.number(), type: z.string(), playerId: z.string().optional(), payload: z.unknown().optional() })),
   answers: z.array(z.object({
@@ -76,6 +86,9 @@ export class AuthoritativeSession {
   private pausedSessionRemaining = 0;
   private phase: PublicSessionState["phase"] = "lobby";
   private lobbyLocked = false;
+  private teamCount = 0;
+  private nicknameMode: NicknameMode = "student-choice";
+  private nicknameCounter = 0;
 
   constructor(readonly code: string, snapshot: GameSnapshot, private now = () => Date.now(), restored?: PersistedSession) {
     this.snapshot = structuredClone(snapshot);
@@ -113,6 +126,9 @@ export class AuthoritativeSession {
     this.pausedRemaining = state.pausedRemaining;
     this.phase = state.phase;
     this.lobbyLocked = state.lobbyLocked;
+    this.teamCount = state.teamCount;
+    this.nicknameMode = state.nicknameMode;
+    this.nicknameCounter = state.nicknameCounter;
   }
 
   toPersistence(): PersistedSession {
@@ -120,6 +136,9 @@ export class AuthoritativeSession {
       version: 1,
       code: this.code,
       snapshot: structuredClone(this.snapshot),
+      teamCount: this.teamCount,
+      nicknameMode: this.nicknameMode,
+      nicknameCounter: this.nicknameCounter,
       players: [...this.players.values()].map(player => ({ ...player, connected: false })),
       events: structuredClone(this.events),
       answers: structuredClone(this.answers),
@@ -142,10 +161,13 @@ export class AuthoritativeSession {
     };
   }
 
-  join(displayName: string, playerId: string = randomUUID(), emblem?: string): Player {
+  join(displayName: string | undefined, playerId: string = randomUUID(), emblem?: string): Player {
     if (this.lobbyLocked || this.phase !== "lobby") throw new Error("lobby_closed");
-    const player = Player.parse({ id: playerId, displayName, emblem, connected: true, joinedAt: this.now() });
+    const name = this.nicknameMode === "assigned" ? classroomNickname(this.nicknameCounter++) : this.validateNickname(displayName);
+    let player = Player.parse({ id: playerId, displayName: name, emblem, connected: true, joinedAt: this.now() });
     this.players.set(player.id, player);
+    this.assignTeams();
+    player = this.players.get(player.id)!;
     this.scores.set(player.id, 0);
     this.streaks.set(player.id, 0);
     this.issuePlayerToken(player.id);
@@ -188,7 +210,9 @@ export class AuthoritativeSession {
     if (command.type === "resume") { if (this.phase !== "paused") throw new Error("invalid_phase"); if (this.isTimedRepeat && this.pausedSessionRemaining <= 0) { this.endSession(); return; } this.phase = "question"; if (this.isTimedRepeat) { this.sessionDeadlineAt = this.now() + this.pausedSessionRemaining; this.pausedSessionRemaining = 0; } this.questionStartedAt = this.now() - this.pausedQuestionElapsed; this.pausedQuestionElapsed = 0; this.deadlineAt = this.now() + this.pausedRemaining; if (this.isTimedRepeat) this.deadlineAt = Math.min(this.deadlineAt, this.sessionDeadlineAt); this.emit("session.resumed"); }
     if (command.type === "end") { this.phase = "ended"; this.emit("session.ended"); }
     if (command.type === "lock-lobby") { this.lobbyLocked = command.locked; this.emit("lobby.locked", { locked: command.locked }); }
-    if (command.type === "kick") { this.players.delete(command.playerId); this.playerTokens.delete(command.playerId); this.playerTokenHashes.delete(command.playerId); this.studentAccounts.delete(command.playerId); this.emit("player.kicked", { playerId: command.playerId }); }
+    if (command.type === "set-team-count") { if (this.phase !== "lobby") throw new Error("invalid_phase"); this.teamCount = command.teamCount; this.assignTeams(); this.emit("teams.changed", { teamCount: this.teamCount }); }
+    if (command.type === "set-nickname-mode") { if (this.phase !== "lobby") throw new Error("invalid_phase"); this.nicknameMode = command.nicknameMode; if (this.nicknameMode === "assigned") { let index = 0; for (const player of this.players.values()) this.players.set(player.id, { ...player, displayName: classroomNickname(index++) }); this.nicknameCounter = index; } this.emit("nicknames.changed", { nicknameMode: this.nicknameMode }); }
+    if (command.type === "kick") { this.players.delete(command.playerId); this.playerTokens.delete(command.playerId); this.playerTokenHashes.delete(command.playerId); this.studentAccounts.delete(command.playerId); this.emit("player.kicked", { playerId: command.playerId }); if (this.phase === "lobby") this.assignTeams(); }
     if (command.type === "reveal") { if (this.phase !== "question") throw new Error("invalid_phase"); this.revealQuestion(); }
     if (command.type === "next") this.nextQuestion();
   }
@@ -257,7 +281,9 @@ export class AuthoritativeSession {
       } : {}),
       phase: this.phase,
       lobbyLocked: this.lobbyLocked,
-      players: [...this.players.values()],
+      teamCount: this.teamCount,
+      nicknameMode: this.nicknameMode,
+      players: [...this.players.values()].map(player => ({ ...player, answered: this.answers.some(answer => answer.playerId === player.id && answer.questionIndex === this.currentIndex) })),
       question: question && this.phase !== "lobby" && this.phase !== "ended" ? { index: this.currentIndex, prompt: question.prompt, options: question.options, deadlineAt: this.deadlineAt, timeLimitMs: Math.max(1, this.deadlineAt - this.questionStartedAt), ...(this.phase === "paused" ? { remainingMs: this.pausedRemaining } : {}) } : undefined,
       reveal: this.phase === "reveal" && question ? { correctOption: question.correctOption, explanation: question.explanation } : undefined,
       questionIndex: this.currentIndex,
@@ -300,7 +326,41 @@ export class AuthoritativeSession {
       };
     });
   }
-  leaderboard() { return [...this.players.values()].map(p => ({ id: p.id, displayName: p.displayName, score: this.score(p.id) })).sort((a,b) => b.score - a.score); }
+  leaderboard() { return [...this.players.values()].map(p => ({ id: p.id, displayName: p.displayName, score: this.score(p.id), ...(p.teamId ? { teamId: p.teamId, teamName: p.teamName } : {}) })).sort((a,b) => b.score - a.score); }
+  teamLeaderboard() {
+    const teams = new Map<string, { id: string; name: string; score: number; players: number }>();
+    for (const player of this.players.values()) {
+      if (!player.teamId) continue;
+      const team = teams.get(player.teamId) ?? { id: player.teamId, name: player.teamName ?? player.teamId, score: 0, players: 0 };
+      team.score += this.score(player.id);
+      team.players += 1;
+      teams.set(player.teamId, team);
+    }
+    return [...teams.values()].sort((left, right) => right.score - left.score || left.name.localeCompare(right.name));
+  }
+  private validateNickname(displayName?: string) {
+    const name = (displayName ?? "").normalize("NFKC").trim().replace(/\s+/gu, " ");
+    if (!name) throw new Error("nickname_required");
+    if (name.length > 32 || /[\u0000-\u001f\u007f<>]/u.test(name) || /(?:https?:\/\/|www\.)/iu.test(name)) throw new Error("nickname_invalid");
+    const normalized = name.toLocaleLowerCase("en-US");
+    if ([...this.players.values()].some(player => player.displayName.normalize("NFKC").toLocaleLowerCase("en-US") === normalized)) throw new Error("nickname_taken");
+    return name;
+  }
+  private assignTeams() {
+    if (this.teamCount === 0) {
+      for (const player of this.players.values()) {
+        const { teamId: _teamId, teamName: _teamName, ...individual } = player;
+        this.players.set(player.id, individual);
+      }
+      return;
+    }
+    const sizes = Array.from({ length: this.teamCount }, () => 0);
+    for (const player of this.players.values()) {
+      const teamIndex = sizes.indexOf(Math.min(...sizes));
+      sizes[teamIndex] = sizes[teamIndex]! + 1;
+      this.players.set(player.id, { ...player, teamId: `team-${teamIndex + 1}`, teamName: `Team ${teamIndex + 1}` });
+    }
+  }
   private get isTimedRepeat() { return this.snapshot.sessionMode === "timed-repeat"; }
   private currentQuestion() { return this.snapshot.questions[this.playOrder[this.currentIndex] ?? 0]!; }
   private shuffledRound() {

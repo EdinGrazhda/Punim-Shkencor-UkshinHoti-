@@ -4,6 +4,46 @@ import type { GameSnapshot } from "@ckadinti/contracts";
 
 const snapshot: GameSnapshot = { id: "quiz-1", title: "Raid", questions: [{ id: "q1", prompt: "2+2?", options: ["3", "4"], correctOption: 1, timeLimitMs: 1000 }] };
 describe("authoritative session", () => {
+  it("enforces classroom nickname rules and supports teacher-assigned aliases across reconnects", () => {
+    const session = new AuthoritativeSession("ABC123", snapshot);
+    const first = session.join("  Ada  ", "player-alias-1");
+    expect(first.displayName).toBe("Ada");
+    expect(() => session.join("ada", "player-alias-duplicate")).toThrow("nickname_taken");
+    expect(() => session.join("https://example.com", "player-alias-link")).toThrow("nickname_invalid");
+
+    session.command({ type: "set-nickname-mode", nicknameMode: "assigned" });
+    expect(session.players.get(first.id)?.displayName).toBe("Curious Comet 01");
+    const second = session.join(undefined, "player-alias-2");
+    expect(second.displayName).toBe("Kind Koala 01");
+
+    const restored = AuthoritativeSession.restore(session.toPersistence());
+    expect(restored.state()).toMatchObject({ nicknameMode: "assigned", players: [{ displayName: "Curious Comet 01", connected: false }, { displayName: "Kind Koala 01", connected: false }] });
+    expect(restored.reconnect(first.id).connected).toBe(true);
+    expect(restored.state().players[0]?.connected).toBe(true);
+  });
+
+  it("balances players across teams and reports aggregated team scores", () => {
+    let now = 1000;
+    const session = new AuthoritativeSession("ABC123", snapshot, () => now);
+    session.command({ type: "set-team-count", teamCount: 2 });
+    const ada = session.join("Ada", "player-team-1");
+    const ben = session.join("Ben", "player-team-2");
+    const cy = session.join("Cy", "player-team-3");
+    expect([ada.teamName, ben.teamName, cy.teamName]).toEqual(["Team 1", "Team 2", "Team 1"]);
+    expect(session.state().teamCount).toBe(2);
+
+    session.command({ type: "start" });
+    now += 100;
+    expect(session.answer(ada.id, { questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000101" }).accepted).toBe(true);
+    expect(session.state().players.find(player => player.id === ada.id)?.answered).toBe(true);
+    session.command({ type: "reveal" });
+    expect(session.teamLeaderboard()).toEqual([
+      { id: "team-1", name: "Team 1", score: session.score(ada.id) + session.score(cy.id), players: 2 },
+      { id: "team-2", name: "Team 2", score: session.score(ben.id), players: 1 },
+    ]);
+    expect(() => session.command({ type: "set-team-count", teamCount: 3 })).toThrow("invalid_phase");
+  });
+
   it("freezes the approved snapshot and rejects duplicate answers", () => {
     let now = 1000; const session = new AuthoritativeSession("ABC123", snapshot, () => now); const player = session.join("Ada", "player-1"); session.command({ type: "start" });
     const request = { questionIndex: 0, optionIndex: 1, idempotencyKey: "00000000-0000-4000-8000-000000000001" };

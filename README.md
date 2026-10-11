@@ -8,9 +8,11 @@ Read [AGENTS.md](AGENTS.md) for repository rules and [docs/TEAM_TASKS.md](docs/T
 
 The teacher desktop app uses Electron, React, and TypeScript. It imports TXT, Markdown, text/scanned PDF, and DOCX lessons, normalizes them into evidence blocks, and persists them with PostgreSQL/Drizzle. A teacher can generate a quiz draft through the selected OpenAI, Gemini or Kilo API, review/edit questions and evidence, approve the quiz, and export an approved runtime snapshot. The review screen supports add, duplicate, delete, reorder, bulk approval, and per-question regeneration.
 
-The test-main branch now includes a local integrated copy of Edin's student/teacher/admin/projector browser UI and Fastify/Socket.IO runtime. The integrated browser teacher workspace also uses Arron's lesson import, AI draft, teacher review, and approved-snapshot flow to create a game. Runtime sessions, accepted answers, events, and score state are stored in PostgreSQL and restored after a host restart. The teacher can recover the latest host session and view completed-session history and reports. The projector lobby displays a scannable QR code beneath its join code. The separate desktop host view still reports sessions created during its current run.
+The `test-main` branch is the local integration branch for trying the complete browser classroom flow. It includes the student/teacher/admin/projector UI and Fastify/Socket.IO runtime, connected to the teacher lesson-import, AI-draft, review, and approved-snapshot workflow. Runtime sessions and results are stored in PostgreSQL and restored after a host restart; the teacher can recover the current session and review completed reports. The projector lobby displays a QR code beneath its join code. The separate desktop host view still reports sessions created during its current run.
 
 When hosting an approved quiz, teachers can choose a fixed question count (default 10, capped by the questions in that quiz) or **Timed shuffle**, which randomizes the approved question pool and repeats shuffled rounds until the selected overall duration (default 10 minutes; 1–120 minutes) expires. The existing per-question response timer applies in both modes. Students and the projector see the overall countdown in timed mode; pausing the game pauses that clock too.
+
+In the lobby, teachers can enable balanced teams (2–6 teams) and choose student nicknames or server-assigned classroom aliases. The teacher can lock joining, see each student's connection and answer status, and remove a student with confirmation. Students retain their player identity through temporary network interruptions; the browser retries reconnecting and the host sees online/offline state updates.
 
 This is still an integration preview, not yet merge-ready for `main`: the runtime persistence and migration changes have unit/restart coverage, but have not been exercised against a real PostgreSQL test database in this environment. Full CI and classroom acceptance checks are also pending. The Arron integration closes the early-answer feedback and score-changing reward gaps: correctness and scores are withheld until reveal, and rewards have been removed. See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) and [docs/CROSS_BRANCH_ALIGNMENT.md](docs/CROSS_BRANCH_ALIGNMENT.md).
 
@@ -86,5 +88,6 @@ RTK is the required compact CLI proxy: https://github.com/rtk-ai/rtk. Graphify i
 
 - `Arron`: teacher desktop, lesson ingestion, AI generation, quiz review, teacher reports.
 - `Edin`: student browser, LAN game host, realtime protocol, runtime scoring and analytics.
+- `test-main`: local integration branch for combined app testing and feature demonstrations.
 
 The attached deep-research report is the original product brief. The team selected PostgreSQL instead of its SQLite recommendation; see [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).

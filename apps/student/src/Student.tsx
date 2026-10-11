@@ -25,6 +25,7 @@ import {
 import type { PublicSessionState } from "@ckadinti/contracts";
 import {
   api,
+  ApiRequestError,
   type PlayerIdentity,
   type PlayerResult,
   type Leaderboard,
@@ -101,10 +102,20 @@ export function Student() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [connectionStatus, setConnectionStatus] = useState<"connected" | "reconnecting" | "rejoin">(() => identity ? "reconnecting" : "connected");
+  const [connectionRetry, setConnectionRetry] = useState(0);
 
   // Keep socket updates snappy, but reconcile periodically with the authoritative
   // session endpoint so a dropped socket event cannot strand a student on reveal.
   const applySessionState = useCallback((next: PublicSessionState) => {
+    setIdentity(current => {
+      if (!current) return current;
+      const player = next.players.find(candidate => candidate.id === current.id);
+      if (!player) return current;
+      const updated = { ...current, name: player.displayName, emblem: player.emblem ?? current.emblem };
+      if (updated.name !== current.name || updated.emblem !== current.emblem) localStorage.setItem("ckadinti-player", JSON.stringify(updated));
+      return updated;
+    });
     setState((current) => {
       if (current && (next.questionIndex ?? -1) < (current.questionIndex ?? -1))
         return current;
@@ -117,48 +128,94 @@ export function Student() {
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (!identity && !name.trim()) navigate("/join", { replace: true });
-  }, [identity, name, navigate]);
+    if (!identity) return;
+    setName(identity.name);
+    setEmblem(identity.emblem);
+  }, [identity?.name, identity?.emblem]);
   useEffect(() => {
     if (!identity) return;
     setStep("lobby");
     setCode(identity.code);
     setName(identity.name);
     setEmblem(identity.emblem);
-    api
-      .reconnect(identity)
-      .then((r) => applySessionState(r.state))
-      .catch(() => {
-        localStorage.removeItem("ckadinti-player");
-        setIdentity(null);
-        setStep("join");
-      });
-  }, []);
-  useEffect(() => {
-    if (!identity) return;
-    const socket = watchSession(identity.code, applySessionState);
     let syncing = false;
+    let restoring = false;
+    let retryTimer: number | undefined;
+    let retryDelay = 1_000;
+    let active = true;
+    const expireIdentity = (cause: unknown) => {
+      const error = cause instanceof Error ? cause : new Error("Your player session is no longer available.");
+      localStorage.removeItem("ckadinti-player");
+      setIdentity(null);
+      setStep("join");
+      setConnectionStatus("rejoin");
+      setError(error.message.includes("rejoin") ? error.message : "Your connection expired. Please rejoin the classroom.");
+    };
+    const isExpired = (cause: unknown) => cause instanceof ApiRequestError && (cause.status === 401 || cause.status === 404 || cause.code === "player_not_found");
+    const scheduleRestore = () => {
+      if (!active || retryTimer !== undefined) return;
+      setConnectionStatus("reconnecting");
+      retryTimer = window.setTimeout(() => {
+        retryTimer = undefined;
+        void restore();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 15_000);
+    };
+    const restore = async () => {
+      if (!active || restoring) return;
+      restoring = true;
+      setConnectionStatus("reconnecting");
+      try {
+        const response = await api.reconnect(identity);
+        if (!active) return;
+        applySessionState(response.state);
+        setIdentity(current => {
+          if (!current || current.id !== identity.id) return current;
+          const updated = { ...current, name: response.player.displayName, emblem: response.player.emblem ?? current.emblem };
+          localStorage.setItem("ckadinti-player", JSON.stringify(updated));
+          return updated;
+        });
+        setConnectionStatus("connected");
+        setError("");
+        retryDelay = 1_000;
+      } catch (cause) {
+        if (!active) return;
+        if (isExpired(cause)) expireIdentity(cause);
+        else scheduleRestore();
+      } finally {
+        restoring = false;
+      }
+    };
+    const socket = watchSession(identity.code, applySessionState, connected => {
+      if (connected) void restore();
+      else scheduleRestore();
+    }, identity);
     const reconcile = async () => {
       if (syncing) return;
       syncing = true;
       try {
         applySessionState(await api.state(identity.code));
         setResult(await api.me(identity));
-      } catch {
-        /* keep the last known view during brief network interruptions */
+        setConnectionStatus("connected");
+      } catch (cause) {
+        if (isExpired(cause)) expireIdentity(cause);
+        else scheduleRestore();
       } finally {
         syncing = false;
       }
     };
+    void restore();
     void reconcile();
     const timer = window.setInterval(() => {
       void reconcile();
-    }, 1500);
+    }, 2_000);
     return () => {
+      active = false;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       window.clearInterval(timer);
       socket.disconnect();
     };
-  }, [identity?.code]);
+  }, [identity?.code, identity?.id, connectionRetry, applySessionState]);
   useEffect(() => {
     if (state?.phase === "question") {
       setSelected(null);
@@ -183,22 +240,20 @@ export function Student() {
     setBusy(true);
     setError("");
     try {
-      if (!name.trim()) {
-        navigate("/join");
-        return;
-      }
       const next = await api.state(code.trim().toUpperCase());
       if (next.phase !== "lobby" || next.lobbyLocked)
         throw new Error("This lobby is closed.");
+      if ((next.nicknameMode ?? "student-choice") === "student-choice" && !name.trim())
+        throw new Error("This game needs a nickname. Go back and enter one, or ask your teacher to enable classroom aliases.");
       setCode(next.code);
-      await join(next.code);
+      await join(next.code, next.nicknameMode ?? "student-choice");
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
-  async function join(sessionCode: string) {
+  async function join(sessionCode: string, nicknameMode: "student-choice" | "assigned") {
     let studentToken: string | undefined;
     try {
       const account = JSON.parse(
@@ -215,7 +270,7 @@ export function Student() {
     }
     const joined = await api.join(
       sessionCode,
-      name.trim(),
+      nicknameMode === "assigned" ? undefined : name.trim(),
       emblem,
       studentToken,
     );
@@ -223,8 +278,8 @@ export function Student() {
       code: sessionCode,
       id: joined.player.id,
       token: joined.playerToken,
-      name: name.trim(),
-      emblem,
+      name: joined.player.displayName,
+      emblem: joined.player.emblem ?? emblem,
     };
     localStorage.setItem("ckadinti-player", JSON.stringify(next));
     setIdentity(next);
@@ -344,6 +399,7 @@ export function Student() {
       : null;
   const locked = selected !== null || currentResult?.answered;
   const totalPlayers = state?.players.length ?? 0;
+  const ownPlayer = state?.players.find(player => player.id === identity?.id);
   const remaining = question ? phase === "paused" ? question.remainingMs ?? Math.max(0, question.deadlineAt - now) : Math.max(0, question.deadlineAt - now) : 0;
   const gameRemaining = state?.sessionDeadlineAt ? Math.max(0, state.sessionDeadlineAt - now) : state?.sessionRemainingMs ?? 0;
   const progressPercent = state?.sessionMode === "timed-repeat" && state.sessionDurationMs
@@ -366,8 +422,10 @@ export function Student() {
             {totalPlayers === 1 ? "player" : "players"}
           </span>
           <span>
-            <Wifi size={16} /> Connected
+            <Wifi size={16} /> {connectionStatus === "connected" ? "Connected" : connectionStatus === "rejoin" ? "Rejoin needed" : "Reconnecting…"}
           </span>
+          {connectionStatus === "reconnecting" && <button type="button" className="connection-retry" onClick={() => setConnectionRetry(value => value + 1)}>Retry</button>}
+          {ownPlayer?.teamName && <Badge className="team-pill">{ownPlayer.teamName}</Badge>}
         </div>
       </header>
       <AnimatePresence mode="wait">
@@ -383,6 +441,7 @@ export function Student() {
             <Emblem name={emblem} size="large" />
             <h1>You're in!</h1>
             <p>The next adventure starts when your teacher is ready.</p>
+            {ownPlayer?.teamName && <Badge className="team-pill">You're playing for {ownPlayer.teamName}</Badge>}
             <div className="lobby-panel">
               <div className="lobby-heading">
                 <div>
@@ -411,6 +470,7 @@ export function Student() {
                       {p.displayName}
                       {p.id === identity?.id ? " (you)" : ""}
                     </span>
+                    {p.teamName && <Badge className="team-pill">{p.teamName}</Badge>}
                     <span
                       className={`status-dot ${p.connected ? "online" : ""}`}
                     />
@@ -634,6 +694,10 @@ export function Student() {
                 </div>
               ))}
             </Card>
+            {leaderboard?.teams && leaderboard.teams.length > 0 && <Card className="leaderboard-card team-leaderboard-card">
+              <div className="section-title"><h2>Team standings</h2><Badge>{leaderboard.teams.length} teams</Badge></div>
+              {leaderboard.teams.map((team, index) => <div className="leader-row" key={team.id}><span className="rank">{index + 1}</span><strong>{team.name}</strong><span>{team.players} {team.players === 1 ? "player" : "players"}</span><span>{team.score.toLocaleString()} pts</span></div>)}
+            </Card>}
             <Button variant="light" onClick={leave}>
               Back to join <ArrowRight size={18} />
             </Button>

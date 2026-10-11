@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { GameSnapshot, gameSnapshotFromApprovedQuestions, generatedQuestionSchema, reviewQuestionSaveSchema } from "./index.js";
+import { GameSnapshot, HostCommand, JoinRequest, gameSnapshotFromApprovedQuestions, generatedQuestionSchema, reviewQuestionSaveSchema } from "./index.js";
 
 describe("teacher quiz contracts", () => {
+  it("supports optional display names for assigned classroom aliases and validates lobby controls", () => {
+    expect(JoinRequest.safeParse({ emblem: "Comet" }).success).toBe(true);
+    expect(HostCommand.safeParse({ type: "set-team-count", teamCount: 4 }).success).toBe(true);
+    expect(HostCommand.safeParse({ type: "set-team-count", teamCount: 1 }).success).toBe(false);
+    expect(HostCommand.safeParse({ type: "set-nickname-mode", nicknameMode: "assigned" }).success).toBe(true);
+    expect(HostCommand.safeParse({ type: "set-nickname-mode", nicknameMode: "unknown" }).success).toBe(false);
+  });
+
   it("accepts a question with exactly one correct answer and evidence", () => {
     expect(generatedQuestionSchema.safeParse({
       kind: "multiple-choice", prompt: "At what temperature does water freeze?", explanation: "The lesson states zero degrees.",

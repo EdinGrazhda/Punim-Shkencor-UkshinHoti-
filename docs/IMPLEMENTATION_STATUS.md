@@ -52,8 +52,9 @@ Teacher/admin account flows are preview functionality, not part of the stated MV
 ## Branch status
 
 - `main`: shared documentation/tooling/integration baseline.
-- `Arron`: teacher/content pipeline plus a local integrated copy of Edin's runtime/student app. Integration work here does not modify the Edin branch.
+- `Arron`: teacher/content pipeline owner branch.
 - `Edin`: runtime/student owner branch; its state is not changed by this Arron integration.
+- `test-main`: local integration and demo branch used for combined classroom testing; recent feature work is pushed here.
 
 See [TEAM_TASKS.md](TEAM_TASKS.md), [CROSS_BRANCH_ALIGNMENT.md](CROSS_BRANCH_ALIGNMENT.md), and [DEPENDENCIES.md](DEPENDENCIES.md) for ownership, contract boundaries, and dependency decisions.
 
@@ -76,3 +77,11 @@ See [TEAM_TASKS.md](TEAM_TASKS.md), [CROSS_BRANCH_ALIGNMENT.md](CROSS_BRANCH_ALI
 - Preserved the existing per-question response timer in both modes. Timed-repeat sessions shuffle each full round, avoid a same-question repeat at round boundaries when the pool has multiple questions, and stop on the authoritative runtime deadline. Pause/resume preserves the overall remaining time.
 - Student and projector views show the overall countdown; repeated occurrences are tracked separately for answer validation, scoring, and results. Fixed mode remains the default for older snapshots.
 - Verification: shared contracts, runtime host, and student UI typechecks passed; shared-contract tests (5) and runtime-host tests (7 passed, 1 PostgreSQL-only skipped) passed. Student production build passed with the existing large-chunk warning. PostgreSQL-backed and LAN classroom acceptance are still required before main integration.
+
+# Classroom teams, nicknames, host controls, and reconnect (2026-10-11)
+
+- Teachers can choose individual play or 2–6 balanced teams while the lobby is open. The runtime assigns students to the smallest team, persists assignments, freezes team changes at game start, and reports authoritative team totals after the game.
+- Teachers can allow student-chosen nicknames or assign unique classroom aliases. Student-chosen names are normalized, duplicate names are rejected case-insensitively, and links/control or markup characters are blocked. Teachers can remove an unsuitable name/player through a confirmation dialog.
+- Student browsers now preserve their saved player session during transient outages, retry authenticated reconnection with increasing delays, and provide visible connection status and a manual retry. Authenticated sockets are bound to player identities; the runtime publishes disconnect/reconnect status and avoids marking a player offline while another authenticated socket remains connected.
+- Live teacher controls now show per-player online/answer status, team membership, phase-aware lobby locking, and confirmation before removal. In-flight controls are disabled to prevent duplicate commands.
+- Verification: contract/runtime/student typechecks passed; contract tests (6 passed), runtime tests (10 passed, 1 PostgreSQL-only skipped, including a real Socket.IO disconnect/reconnect integration test), and the student production build passed with the existing large-chunk warning. PostgreSQL-backed and multi-device LAN acceptance remain required before main integration.

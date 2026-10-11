@@ -1,6 +1,6 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
-import { Server } from "socket.io";
+import { Server, type Socket } from "socket.io";
 import {
   AnswerRequest,
   CreateSessionRequest,
@@ -64,6 +64,7 @@ export function createRuntimeHost(
   };
   const hostResults = (session: AuthoritativeSession) => ({
     leaderboard: session.leaderboard().map(player => ({ ...player, answers: session.answerBreakdown(player.id) })),
+    teams: session.teamLeaderboard(),
     questions: session.questionsPlayed,
   });
   const publish = (session: AuthoritativeSession) => io.to(session.code).emit("session:state", session.state());
@@ -329,7 +330,7 @@ export function createRuntimeHost(
     catch (error) { return errorResponse(reply, error); }
   });
   app.get<{ Params: CodeParams }>("/api/v1/sessions/:code/results", async (request, reply) => {
-    try { const session = getSession(request.params.code); if (session.state().phase !== "ended") return reply.code(409).send({ error: "results_not_ready" }); return reply.send({ leaderboard: session.leaderboard(), questions: session.questionsPlayed }); }
+    try { const session = getSession(request.params.code); if (session.state().phase !== "ended") return reply.code(409).send({ error: "results_not_ready" }); return reply.send({ leaderboard: session.leaderboard(), teams: session.teamLeaderboard(), questions: session.questionsPlayed }); }
     catch (error) { return errorResponse(reply, error); }
   });
   app.get<{ Params: CodeParams }>("/api/v1/sessions/:code/host/results", async (request, reply) => {
@@ -364,17 +365,57 @@ export function createRuntimeHost(
     catch (error) { return errorResponse(reply, error); }
   });
 
+  // Keep a player online while at least one authenticated browser socket remains.
+  const socketsByPlayer = new Map<string, Set<string>>();
+  const playerSocketKey = (code: string, playerId: string) => `${code}:${playerId}`;
+  const bindPlayerSocket = (session: AuthoritativeSession, playerId: string, socket: Socket) => {
+    const key = playerSocketKey(session.code, playerId);
+    const sockets = socketsByPlayer.get(key) ?? new Set<string>();
+    sockets.add(socket.id);
+    socketsByPlayer.set(key, sockets);
+    socket.data.sessionCode = session.code;
+    socket.data.playerId = playerId;
+  };
+
   // Socket.IO remains available for realtime clients and delegates to the same engine.
   io.on("connection", (socket) => {
-    socket.on("session:watch", (raw, ack) => { try { const session = getSession(String(raw.code)); socket.join(session.code); ack({ ok: true, state: session.state() }); } catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "watch_failed" }); } });
+    socket.on("session:watch", async (raw, ack) => {
+      try {
+        const session = getSession(String(raw.code));
+        const playerId = typeof raw.playerId === "string" ? raw.playerId : undefined;
+        const playerToken = typeof raw.playerToken === "string" ? raw.playerToken : undefined;
+        if (playerId || playerToken) {
+          if (!playerId || !session.verifyPlayer(playerId, playerToken)) throw new Error("unauthorized");
+          session.reconnect(playerId);
+          bindPlayerSocket(session, playerId, socket);
+          await persistSession(session);
+        }
+        await socket.join(session.code);
+        ack({ ok: true, state: session.state() });
+        if (playerId) publish(session);
+      } catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "watch_failed" }); }
+    });
     socket.on("session:join", async (raw, ack) => {
-      try { const data = JoinRequest.parse(raw); const session = getSession(String(raw.code)); const player = session.join(data.displayName, socket.id, data.emblem); await persistSession(session); socket.join(session.code); ack({ ok: true, player, playerToken: session.tokenFor(player.id), state: session.state() }); publish(session); }
+      try { const data = JoinRequest.parse(raw); const session = getSession(String(raw.code)); const player = session.join(data.displayName, socket.id, data.emblem); bindPlayerSocket(session, player.id, socket); await persistSession(session); await socket.join(session.code); ack({ ok: true, player, playerToken: session.tokenFor(player.id), state: session.state() }); publish(session); }
       catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "join_failed" }); }
     });
-    socket.on("session:reconnect", async (raw, ack) => { try { const session = getSession(String(raw.code)); if (!session.verifyPlayer(raw.playerId, raw.playerToken)) throw new Error("unauthorized"); const player = session.reconnect(raw.playerId); await persistSession(session); socket.join(session.code); ack({ ok: true, player, state: session.state() }); publish(session); } catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "reconnect_failed" }); } });
+    socket.on("session:reconnect", async (raw, ack) => { try { const session = getSession(String(raw.code)); if (!session.verifyPlayer(raw.playerId, raw.playerToken)) throw new Error("unauthorized"); const player = session.reconnect(raw.playerId); bindPlayerSocket(session, raw.playerId, socket); await persistSession(session); await socket.join(session.code); ack({ ok: true, player, state: session.state() }); publish(session); } catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "reconnect_failed" }); } });
     socket.on("session:answer", async (raw, ack) => { try { const data = AnswerRequest.parse(raw); const session = getSession(String(raw.code)); if (!session.verifyPlayer(raw.playerId, raw.playerToken)) throw new Error("unauthorized"); const result = session.answer(raw.playerId, data); if (result.accepted) await persistSession(session); ack(result); publish(session); } catch (error) { ack({ accepted: false, reason: error instanceof Error ? error.message : "answer_failed" }); } });
     socket.on("session:command", async (raw, ack) => { try { const session = getSession(String(raw.code)); if (!session.verifyHost(raw.hostToken)) throw new Error("unauthorized"); session.command(HostCommand.parse(raw.command)); await persistSession(session); ack({ ok: true, state: session.state() }); publish(session); } catch (error) { ack({ ok: false, error: error instanceof Error ? error.message : "command_failed" }); } });
-    socket.on("disconnect", () => { for (const session of sessions.values()) if (session.players.has(socket.id)) { session.disconnect(socket.id); void persistSession(session).catch(error => app.log.error({ err: error, sessionCode: session.code }, "Could not persist player disconnect")); } });
+    socket.on("disconnect", () => {
+      const sessionCode = socket.data.sessionCode as string | undefined;
+      const playerId = socket.data.playerId as string | undefined;
+      if (!sessionCode || !playerId) return;
+      const session = sessions.get(sessionCode);
+      const key = playerSocketKey(sessionCode, playerId);
+      const sockets = socketsByPlayer.get(key);
+      sockets?.delete(socket.id);
+      if (sockets?.size) return;
+      socketsByPlayer.delete(key);
+      if (!session?.players.has(playerId)) return;
+      session.disconnect(playerId);
+      void persistSession(session).then(() => publish(session)).catch(error => app.log.error({ err: error, sessionCode }, "Could not persist player disconnect"));
+    });
   });
 
   return { app, io, sessions, teacherStore, studentStore, runtimeSessionStore, init: initialize };

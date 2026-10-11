@@ -16,12 +16,12 @@ export function StudentName() {
   const code = new URLSearchParams(window.location.search).get("code") ?? "";
   function continueToCode(event: FormEvent) {
     event.preventDefault();
-    if (!name.trim()) return;
-    sessionStorage.setItem("ckadinti-student-name", name.trim());
+    if (name.trim()) sessionStorage.setItem("ckadinti-student-name", name.trim());
+    else sessionStorage.removeItem("ckadinti-student-name");
     localStorage.removeItem("ckadinti-player");
     navigate(`/play${code ? `?code=${encodeURIComponent(code)}` : ""}`);
   }
-  return <div className="student-name-page"><div className="entry-art" /><header className="entry-header"><Link to="/"><Brand /></Link><Link to="/students">Student panel</Link></header><main className="student-name-main"><Badge className="light-badge">STEP 1 OF 2 · JOIN A QUIZ</Badge><h1>What should we call you?</h1><p>No account needed. Your teacher will see this name in the game.</p><Card className="student-name-card"><form onSubmit={continueToCode}><label htmlFor="student-name">Your name</label><Input id="student-name" autoComplete="given-name" autoFocus value={name} onChange={event => setName(event.target.value)} maxLength={32} required placeholder="Type your name" /><Button type="submit" disabled={!name.trim()}>Continue to game code <ArrowRight size={18} /></Button></form><div className="student-account-prompt">Want your profile remembered? <Link to={`/student/account${code ? `?code=${encodeURIComponent(code)}` : ""}`}>{account ? "Manage student account" : "Create or sign in"}</Link></div></Card><span className="student-name-note">Next, enter the six-character code from your teacher.</span></main></div>;
+  return <div className="student-name-page"><div className="entry-art" /><header className="entry-header"><Link to="/"><Brand /></Link><Link to="/students">Student panel</Link></header><main className="student-name-main"><Badge className="light-badge">STEP 1 OF 2 · JOIN A QUIZ</Badge><h1>What should we call you?</h1><p>Use a classroom nickname, or leave this blank if your teacher assigns aliases.</p><Card className="student-name-card"><form onSubmit={continueToCode}><label htmlFor="student-name">Your nickname <span>(optional with teacher-assigned aliases)</span></label><Input id="student-name" autoComplete="nickname" autoFocus value={name} onChange={event => setName(event.target.value)} maxLength={32} placeholder="Type a nickname" /><Button type="submit">Continue to game code <ArrowRight size={18} /></Button></form><div className="student-account-prompt">Want your profile remembered? <Link to={`/student/account${code ? `?code=${encodeURIComponent(code)}` : ""}`}>{account ? "Manage student account" : "Create or sign in"}</Link></div></Card><span className="student-name-note">Next, enter the six-character code from your teacher.</span></main></div>;
 }
 
 export function StudentAccount() {
