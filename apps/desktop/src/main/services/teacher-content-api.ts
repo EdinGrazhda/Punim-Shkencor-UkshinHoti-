@@ -26,6 +26,7 @@ export interface TeacherContentApiOptions {
   getRepositories: () => Repositories;
   authorizeTeacher: (token: string) => Promise<boolean>;
   port?: number;
+  host?: string;
   allowedOrigins?: string[];
 }
 
@@ -87,6 +88,11 @@ export function createTeacherContentApi(options: TeacherContentApiOptions) {
       return;
     }
 
+    if (request.method === "GET" && request.url === "/health") {
+      sendJson(reply, 200, { ok: true, service: "ckadinti-teacher-content" });
+      return;
+    }
+
     const token = request.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
     if (!token || token.length > 512) {
       sendJson(reply, 401, { error: "unauthorized" });
@@ -142,6 +148,12 @@ export function createTeacherContentApi(options: TeacherContentApiOptions) {
         sendJson(reply, 200, await repositories.quizzes.list());
         return;
       }
+      if (request.method === "DELETE" && parts.length === 2 && parts[0] === "quizzes") {
+        const quizId = quizIdSchema.parse(parts[1]);
+        if (!await repositories.quizzes.delete(quizId)) throw new Error("not_found");
+        sendJson(reply, 200, { quizId, deleted: true });
+        return;
+      }
       if (request.method === "GET" && parts.length === 2 && parts[0] === "quizzes") {
         const quizId = quizIdSchema.parse(parts[1]);
         const quiz = await repositories.quizzes.getForReview(quizId);
@@ -192,6 +204,13 @@ export function createTeacherContentApi(options: TeacherContentApiOptions) {
         sendJson(reply, 200, { quizId, status: quiz.status });
         return;
       }
+      if (request.method === "POST" && parts.length === 3 && parts[0] === "quizzes" && parts[2] === "approve-all") {
+        const quizId = quizIdSchema.parse(parts[1]);
+        const quiz = await repositories.quizzes.approveAll(quizId);
+        if (!quiz) throw new Error("not_found");
+        sendJson(reply, 200, { quizId, status: quiz.status });
+        return;
+      }
       if (request.method === "POST" && parts.length === 3 && parts[0] === "quizzes" && parts[2] === "snapshot") {
         sendJson(reply, 200, await loadApprovedSnapshot(quizIdSchema.parse(parts[1]), repositories));
         return;
@@ -216,7 +235,7 @@ export function createTeacherContentApi(options: TeacherContentApiOptions) {
       return new Promise<void>((resolve, reject) => {
         const onError = (error: Error) => reject(error);
         server!.once("error", onError);
-        server!.listen(port, "127.0.0.1", () => {
+        server!.listen(port, options.host ?? "127.0.0.1", () => {
           server!.off("error", onError);
           resolve();
         });

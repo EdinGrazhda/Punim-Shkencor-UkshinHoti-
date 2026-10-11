@@ -10,7 +10,7 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))));
 });
 
-async function start() {
+async function start(options: { lanAccessCode?: string; allowedOrigins?: string[] } = {}) {
   let handle: ReturnType<typeof createAiDemoHandler>;
   const server = createServer((request, reply) => {
     void handle(request, reply, () => { reply.writeHead(404); reply.end(); });
@@ -18,9 +18,13 @@ async function start() {
   servers.push(server);
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
-  handle = createAiDemoHandler(port);
+  handle = createAiDemoHandler(port, options);
   const base = `http://127.0.0.1:${port}`;
-  const session = await fetch(`${base}/api/ai-demo/session`).then(response => response.json()) as { token: string };
+  const sessionResponse = await fetch(`${base}/api/ai-demo/session`, {
+    headers: options.lanAccessCode ? { "X-AI-Demo-Access-Code": options.lanAccessCode } : undefined,
+  });
+  const session = await sessionResponse.json() as { token: string };
+  expect(sessionResponse.status).toBe(200);
   const headers = { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json" };
   return { base, headers };
 }
@@ -38,6 +42,16 @@ describe("database-free AI demo", () => {
     expect(badHostStatus).toBe(403);
     expect((await fetch(`${base}/api/teacher-content/v1/lessons`, { headers: { Authorization: "Bearer wrong" } })).status).toBe(401);
     expect((await fetch(`${base}/api/v1/teachers/login`, { method: "POST" })).status).toBe(404);
+  });
+
+  it("requires the private share code before returning a teacher session token in LAN mode", async () => {
+    const accessCode = "a".repeat(48);
+    const { base } = await start({ lanAccessCode: accessCode, allowedOrigins: ["http://192.168.1.221"] });
+    expect((await fetch(`${base}/api/ai-demo/session`)).status).toBe(403);
+    expect((await fetch(`${base}/api/ai-demo/session`, { headers: { "X-AI-Demo-Access-Code": "wrong" } })).status).toBe(403);
+    expect((await fetch(`${base}/api/ai-demo/session`, {
+      headers: { "X-AI-Demo-Access-Code": accessCode, Origin: "http://192.168.1.221" },
+    })).status).toBe(200);
   });
 
   it("imports a lesson, generates a review draft, and invalidates approval after edits without PostgreSQL", async () => {
@@ -78,18 +92,17 @@ describe("database-free AI demo", () => {
     expect(quiz.status).toBe("needs-review");
     expect((await fetch(previewUrl)).status).toBe(404);
     expect((await fetch(`${quizUrl}/approve`, { method: "POST", headers })).status).toBe(409);
-    for (const question of quiz.questions) {
-      const decision = await fetch(`${base}/api/teacher-content/v1/questions/${question.id}/decision`, {
-        method: "POST", headers, body: JSON.stringify({ questionId: question.id, reviewStatus: "approved" }),
-      });
-      expect(decision.status).toBe(200);
-    }
-    expect((await fetch(`${quizUrl}/approve`, { method: "POST", headers })).status).toBe(200);
+    const bulkApproval = await fetch(`${quizUrl}/approve-all`, { method: "POST", headers });
+    expect(bulkApproval.status).toBe(200);
+    expect(await bulkApproval.json()).toEqual({ quizId: draft.quizId, status: "approved" });
+    const approvedQuiz = await fetch(quizUrl, { headers }).then(response => response.json());
+    expect(approvedQuiz.questions.map((question: { reviewStatus: string }) => question.reviewStatus)).toEqual(["approved", "approved", "approved"]);
     const previewResponse = await fetch(previewUrl);
     expect(previewResponse.status).toBe(200);
     expect(previewResponse.headers.get("cache-control")).toBe("no-store");
     const preview = await previewResponse.json();
-    expect(Object.keys(preview).sort()).toEqual(["questions", "title"]);
+    expect(Object.keys(preview).sort()).toEqual(["attemptToken", "questions", "title"]);
+    expect(preview.attemptToken).toMatch(/^[0-9a-f-]{36}$/i);
     expect(preview.questions).toHaveLength(3);
     for (const question of preview.questions) {
       expect(Object.keys(question).sort()).toEqual(["id", "options", "prompt"]);

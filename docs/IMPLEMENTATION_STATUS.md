@@ -11,7 +11,8 @@
 - [x] OpenAI Responses API, Google Gemini and anonymous Kilo free-model generation with structured validation, source-quote evidence and mandatory teacher review. Live PDF generation succeeded through Kilo on 2026-10-07; Gemini was blocked by regional free-tier/billing eligibility and OpenAI still needs local verification.
 - [x] Opt-in `dev:ai-demo` reuses the browser quiz studio and actual content services with temporary memory storage on `127.0.0.1:4175`, without PostgreSQL or an admin login. Imported the sample HTML PDF and generated eight questions with correct-answer and original-source-span checks. PDF line-wrapping differences are accepted while changed citation wording remains rejected.
 - [x] Teacher review actions: edit, approve/reject, add, duplicate, delete, reorder, bulk approve, and per-question regenerate.
-- [x] Demo-first approval feedback: visible question confirmations, saved quiz status, and a separate local student preview for approved quizzes. The shared public preview contract exposes only title/question IDs/prompts/choices. Demo saves survive page refresh only; server restart clears them. Student choices are neither graded nor persisted, and live/LAN hosting is not enabled by this preview.
+- [x] Demo-first approval feedback: visible question confirmations, saved quiz status, and a separate local student preview for approved quizzes. The shared public preview contract exposes the attempt token and title/question IDs/prompts/choices, never the answer key. Demo saves survive page refresh only; server restart clears them. Submitted answers are checked once per attempt/question and reveal their result; attempts/scores are temporary. This preview is not live/LAN hosting.
+- [x] Local demo quiz library can select and delete quizzes with confirmation. Student practice preview checks the selected choice, reveals correctness immediately after selection, and shows the final score; student responses and scores are not persisted.
 - [x] Approved quiz export through the shared `GameSnapshot` contract, including teacher-reviewed explanations.
 - [x] Local session creation and native desktop host controls/reports.
 - [x] Edin's student/teacher/admin/projector browser UI and Fastify/Socket.IO runtime selectively integrated on Arron.
@@ -28,7 +29,7 @@
 - Live database-free demo check generated exactly nine questions across two planned batches and verified one correct answer per question plus original-source evidence spans. Repeated successfully after the count-recovery fix: validated questions survive undersized responses, missing questions get smaller top-up requests, and extras are discarded. Recovery is bounded to four calls per planned batch; no partial quiz is saved. Generation/planning tests (36) and desktop type checking passed, covering under/over-counts, duplicates, invalid citations and provider failure during recovery.
 - Approval/preview regression coverage verifies approval gating, public-field whitelisting, teacher authentication, cross-origin blocking, saved review reloads and re-approval after edits. Desktop demo/content tests (6) and shared contract tests (4) passed; student and desktop type checks passed.
 - Live demo browser verification showed per-question confirmations, saved quiz confirmation and the approved student view; the two-question sample reached the preview-completed screen without displaying scores or correctness. Student production build passed (existing large-chunk warning); the local code-only Graphify index was refreshed. The demo server required a restart after rebuilding the new shared contract.
-- The pre-approval-feature snapshot was committed and pushed to `Arron` as `06f068d` on 2026-10-08. The new demo approval/student-preview work is local pending its own commit. No main/Edin merge or push was performed. These checks do not replace the pending real PostgreSQL, LAN/multi-device, full classroom acceptance, and remote CI checks below.
+- The AI question-count recovery and demo approval/student-preview work were pushed to `Arron` as `bfcb8ec` on 2026-10-08. The current demo quiz deletion and answer-feedback additions are local pending a commit. No main/Edin merge or push was performed. These checks do not replace the pending real PostgreSQL, LAN/multi-device, full classroom acceptance, and remote CI checks below.
 
 ### Integration checklist
 
@@ -55,3 +56,16 @@ Teacher/admin account flows are preview functionality, not part of the stated MV
 - `Edin`: runtime/student owner branch; its state is not changed by this Arron integration.
 
 See [TEAM_TASKS.md](TEAM_TASKS.md), [CROSS_BRANCH_ALIGNMENT.md](CROSS_BRANCH_ALIGNMENT.md), and [DEPENDENCIES.md](DEPENDENCIES.md) for ownership, contract boundaries, and dependency decisions.
+
+# Browser lesson-import repair (2026-10-10)
+
+- Integrated Edin's refreshed text-import UI and standalone teacher-content service into Arron, preserving Arron's demo deletion and student-preview work.
+- Docker now starts the content service and proxies lesson requests to it instead of the game runtime. PDF uploads allow 50 MB and extended OCR/generation timeouts.
+- Pasted text reuses the existing validated TXT import pipeline; unsaved text blocks generation from a previously selected lesson.
+- Docker authoring works without Electron; local Electron and the temporary AI demo remain supported.
+- Verified on the running Docker stack: authenticated TXT import, a PDF larger than 1 MB through the web proxy, and live AI generation of three review-only questions. Disposable verification records were removed. Browser paste-text submission also passed in the shared AI-demo studio; student/desktop typechecks and focused PDF/auth/API tests passed.
+
+# Teacher review UX repair (2026-10-11)
+
+- Moved teacher logout from the fixed top bar into the sidebar footer, directly below the teacher status.
+- Added one atomic “Approve all & save quiz” action. It approves every question and the quiz together only when each question has source evidence; individual review and approval remain available.

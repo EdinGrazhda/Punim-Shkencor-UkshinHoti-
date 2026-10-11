@@ -1,4 +1,11 @@
 .git
+.env
+.env.*
+**/.env
+**/.env.*
+**/dist-content
+**/out
+**/.vite
 .github
 node_modules
 **/node_modules

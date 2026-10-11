@@ -61,6 +61,11 @@ export function createMemoryContentRepositories(): ContentRepositories {
         return copy(quiz);
       },
       async list() { return copy([...quizzes.values()].reverse()); },
+      async delete(id: string) {
+        if (!quizzes.delete(id)) return false;
+        for (const [questionId, question] of questions) if (question.quizId === id) questions.delete(questionId);
+        return true;
+      },
       async getForReview(id) {
         const quiz = quizzes.get(id);
         return quiz ? copy({ ...quiz, questions: [...questions.values()].filter(question => question.quizId === id).sort((a, b) => a.ordinal - b.ordinal) }) : null;
@@ -73,6 +78,18 @@ export function createMemoryContentRepositories(): ContentRepositories {
           throw new Error("Every question must be reviewed and approved before approving the quiz.");
         }
         Object.assign(quiz, { status: "approved", approvedAt: new Date(), updatedAt: new Date() });
+        return copy(quiz);
+      },
+      async approveAll(id) {
+        const quiz = quizzes.get(id);
+        if (!quiz) return null;
+        const items = [...questions.values()].filter(question => question.quizId === id);
+        if (!items.length || items.some(question => question.evidence.length === 0)) {
+          throw new Error("Every question must have source evidence before bulk approval.");
+        }
+        const now = new Date();
+        for (const question of items) Object.assign(question, { reviewStatus: "approved", updatedAt: now });
+        Object.assign(quiz, { status: "approved", approvedAt: now, updatedAt: now });
         return copy(quiz);
       },
     },

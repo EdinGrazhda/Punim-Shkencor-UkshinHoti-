@@ -157,13 +157,24 @@ export const PublicQuestion = z.object({
 });
 export type PublicQuestion = z.infer<typeof PublicQuestion>;
 
-// Database-free demo only. Deliberately excludes correct answers, explanations,
-// citations and scores; it is not a substitute for an authoritative live session.
+// Database-free demo only. The quiz payload excludes answer keys, explanations,
+// citations and scores; correctness is disclosed only after an answer submission.
 export const StudentQuizPreview = z.object({
   title: z.string().min(1),
+  attemptToken: z.string().uuid(),
   questions: z.array(PublicQuestion.pick({ prompt: true, options: true }).extend({ id: z.string().uuid() })).min(1),
 });
 export type StudentQuizPreview = z.infer<typeof StudentQuizPreview>;
+export const StudentPreviewAnswerSubmission = z.object({
+  attemptToken: z.string().uuid(),
+  questionId: z.string().uuid(),
+  optionIndex: z.number().int().nonnegative(),
+});
+export const StudentPreviewAnswerResult = z.object({
+  correct: z.boolean(),
+  correctAnswer: z.string().min(1),
+});
+export type StudentPreviewAnswerResult = z.infer<typeof StudentPreviewAnswerResult>;
 
 export const PublicSessionState = z.object({
   code: z.string().length(6),

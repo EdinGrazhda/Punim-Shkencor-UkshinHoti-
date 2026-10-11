@@ -18,6 +18,8 @@ This is still an integration preview, not yet merge-ready for `main`: the runtim
 
 For a temporary PDF-to-quiz test, set `AI_PROVIDER=kilo` and `KILO_MODEL=nvidia/nemotron-3-super-120b-a12b:free` in the ignored root `.env`, then run `corepack pnpm dev:ai-demo`. Open [the AI quiz demo](http://127.0.0.1:4175/ai-demo.html). No database, Electron process, login, or API key is required for this mode.
 
+To share this temporary demo on a trusted LAN, set `AI_DEMO_LAN_HOST` to this computer's private IPv4 address and `AI_DEMO_LAN_ACCESS_CODE` to a random URL-safe secret of at least 32 characters before starting it. Share the demo URL with `#access=<secret>` only with trusted people. The server binds only to that address; teacher-session access requires the share code. Keep any firewall allowance limited to the local subnet, and do not use LAN mode on untrusted Wi-Fi.
+
 The demo reuses the integrated teacher quiz studio and the real import/generation/evidence-validation services. Download the sample HTML lesson PDF from the page (or upload your own TXT, Markdown, text/scanned PDF or DOCX), enter a question count, generate, and review the answers and exact source quotes. Lessons and drafts live in memory and disappear when the demo server stops; live classroom hosting is disabled. Normal app persistence remains PostgreSQL.
 
 #### Try approval and the student preview
@@ -25,8 +27,10 @@ The demo reuses the integrated teacher quiz studio and the real import/generatio
 1. Open **Review**, inspect each question and its evidence, then click **Approve question**. A visible confirmation and an **Approved** button show that the approval was saved.
 2. After every question is approved, click **Save and approve quiz**. The saved confirmation offers **Open student preview**; the quiz library also retains a preview link after refreshing the page.
 3. Open that link to try the questions and select answers in a separate student view. The public preview receives only the title, question IDs, prompts and choices—no answer key, explanations or scores. Editing a saved question invalidates approval and blocks new preview requests until re-approval.
+4. Students select an option to see immediately whether it is right; an incorrect choice also reveals the correct option. After the last question, **View score** shows the result. Each preview attempt accepts one answer per question; responses and scores are temporary and are not saved.
+5. In the demo quiz library, select one or more rows and click **Delete selected**. Confirm the permanent deletion to remove those quizzes and their questions from the demo.
 
-This is a **same-computer, memory-only demo**: saving survives browser refresh, not a server restart. Student selections stay in that tab and are not submitted, graded or persisted. It is not a LAN lobby or live classroom game. PostgreSQL persistence and authoritative classroom play remain part of the full-app phase. After changing shared contracts, rebuild `@ckadinti/contracts` and restart the demo before testing; a restart clears its temporary content.
+This is a **same-computer, memory-only demo**: saving survives browser refresh, not a server restart. Quiz answers and scores are checked for practice only and are not persisted; this preview is not the authoritative LAN game. PostgreSQL persistence and live classroom play remain part of the full-app phase. After changing shared contracts, rebuild `@ckadinti/contracts` and restart the demo before testing; a restart clears its temporary content.
 
 #### PDF support and custom question counts
 
@@ -56,7 +60,13 @@ If the browser teacher page reports that the teacher content service returned HT
 
 For LAN students, set `STUDENT_ORIGIN=http://<teacher-LAN-IP>:4173` before starting the runtime and allow the relevant ports through the local firewall. A localhost join URL works only on the teacher computer.
 
-For a Docker preview, set `POSTGRES_PASSWORD` in `.env` and run `docker compose up --build`. Open [the student/teacher app](http://localhost:4173) and [runtime health](http://localhost:4310/health). To create a preview administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.test "Preview Admin"` and save the one-time password printed in that terminal. Accounts are preview-only; do not use real student data.
+For a Docker preview, set `POSTGRES_PASSWORD` and your selected AI provider in the ignored `.env`, then run `docker compose up -d --build`. Compose starts PostgreSQL, the game runtime, the teacher-content service, and the web app. Docker authoring does not require Electron. Sign in with a teacher account and open [Create Game](http://127.0.0.1:4173/teacher?tab=create). Under **Add a lesson**, choose **Upload file** for PDF/TXT/Markdown/DOCX, or **Paste text** and **Add text to library**. Then select your lesson and generate a draft. The same import controls are available in the temporary AI demo.
+
+If upgrading an existing Docker demo, rebuild both `teacher-content` and `student`; an older web image lacks the text box and routes lesson requests to the game API. Check `docker compose ps` for a healthy teacher-content service. Its internal port 4320 is proxied through the web server, with a 50 MB upload limit and a longer timeout for OCR/generation. Secrets remain inside the service environment and are excluded from Docker build contexts.
+
+On Windows, verify this integration with `Get-Content scripts/smoke-browser-content.mjs -Raw | docker compose exec -T teacher-content node --input-type=module`. It creates and cleans up a disposable teacher and TXT/PDF lessons through the real web proxy. To also call the configured AI provider for three questions, add `-e SMOKE_GENERATE=1` before `teacher-content`.
+
+To create a preview administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.test "Preview Admin"` and save the one-time password printed in that terminal. Create a teacher account from the admin page, then use teacher sign-in for authoring. Accounts are preview-only; do not use real student data.
 
 ## Checks
 

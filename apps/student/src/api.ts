@@ -3,6 +3,7 @@ import type {
   HostCommand,
   PublicSessionState,
 } from "@ckadinti/contracts";
+import { StudentPreviewAnswerResult } from "@ckadinti/contracts";
 import { io, type Socket } from "socket.io-client";
 
 export type PlayerIdentity = {
@@ -442,9 +443,9 @@ async function teacherContentRequest<T>(
       },
     });
   } catch {
-    throw new Error("Cannot reach the teacher content service. Start the Electron desktop app and keep it open; it hosts the local browser authoring API.");
+    throw new Error("Cannot reach the lesson service. Start the teacher-content service in Docker, or keep the Electron desktop app open for local development.");
   }
-  const unavailableMessage = `Teacher content service returned HTTP ${response.status}. Start or restart the Electron desktop app; it hosts the local browser authoring API.`;
+  const unavailableMessage = `Lesson service returned HTTP ${response.status}. Check that the Docker teacher-content service or Electron desktop app is running.`;
   const text = await response.text();
   let data: Record<string, unknown> = {};
   if (text) {
@@ -500,6 +501,8 @@ export const teacherContentApi = {
     }),
   listQuizzes: (token: string) =>
     teacherContentRequest<TeacherQuizSummary[]>("/quizzes", token),
+  deleteQuiz: (token: string, id: string) =>
+    teacherContentRequest<{ quizId: string; deleted: true }>(`/quizzes/${id}`, token, { method: "DELETE" }),
   getQuiz: (token: string, id: string) =>
     teacherContentRequest<TeacherReviewQuiz>(`/quizzes/${id}`, token),
   saveQuestion: (
@@ -551,9 +554,31 @@ export const teacherContentApi = {
       token,
       { method: "POST" },
     ),
+  approveAllQuestions: (token: string, quizId: string) =>
+    teacherContentRequest<{ quizId: string; status: "approved" }>(
+      `/quizzes/${quizId}/approve-all`,
+      token,
+      { method: "POST" },
+    ),
   approvedSnapshot: (token: string, quizId: string) =>
     teacherContentRequest<GameSnapshot>(`/quizzes/${quizId}/snapshot`, token, {
       method: "POST",
+    }),
+};
+
+export const studentQuizPreviewApi = {
+  submitAnswer: (quizId: string, input: { attemptToken: string; questionId: string; optionIndex: number }) =>
+    fetch(`/api/ai-demo/quizzes/${quizId}/student-preview/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async response => {
+      const body: unknown = await response.json();
+      if (!response.ok) {
+        const message = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "This answer could not be checked.";
+        throw new Error(message);
+      }
+      return StudentPreviewAnswerResult.parse(body);
     }),
 };
 

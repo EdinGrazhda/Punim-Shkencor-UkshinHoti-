@@ -32,6 +32,32 @@ services:
       timeout: 5s
       retries: 5
 
+  teacher-content:
+    build:
+      context: .
+      dockerfile: docker/teacher-content.Dockerfile
+    environment:
+      DATABASE_URL: postgres://ckadinti:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/ckadinti
+      RUNTIME_ORIGIN: http://runtime-host:4310
+      CONTENT_HOST: 0.0.0.0
+      STUDENT_ORIGIN: ${STUDENT_ORIGIN:-http://localhost:4173}
+      AI_PROVIDER: ${AI_PROVIDER:-kilo}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      KILO_MODEL: ${KILO_MODEL:-nvidia/nemotron-3-super-120b-a12b:free}
+      PDF_OCR_LANGUAGES: ${PDF_OCR_LANGUAGES:-eng}
+      PDF_OCR_FORCE: ${PDF_OCR_FORCE:-false}
+    depends_on:
+      runtime-host:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4320/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   student:
     build:
       context: .
@@ -39,6 +65,8 @@ services:
     ports:
       - "4173:80"
     depends_on:
+      teacher-content:
+        condition: service_healthy
       runtime-host:
         condition: service_healthy
 

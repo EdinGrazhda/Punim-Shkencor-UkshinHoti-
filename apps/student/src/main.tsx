@@ -32,7 +32,7 @@ function AccountGate({ role }: { role: "teacher" | "admin" }) {
     return () => { active = false; };
   }, [auth?.token, navigate, role]);
   async function logout() { if (auth?.token) { await api.logoutTeacher(auth.token).catch(() => undefined); clearTeacherIdentity(auth); } localStorage.removeItem("ckadinti-host"); navigate("/", { replace: true }); }
-  return ready && auth ? <>{role === "teacher" ? <><Teacher /><button className="teacher-logout" onClick={() => void logout()}>Log out</button></> : <AdminPanel auth={auth} onLogout={() => void logout()} />}</> : <div className="auth-loading">Opening your workspace…</div>;
+  return ready && auth ? <>{role === "teacher" ? <Teacher onLogout={() => void logout()} /> : <AdminPanel auth={auth} onLogout={() => void logout()} />}</> : <div className="auth-loading">Opening your workspace…</div>;
 }
 
 createRoot(document.getElementById("root")!).render(<React.StrictMode><BrowserRouter><Routes><Route path="/" element={<Landing />} /><Route path="/login" element={<TeacherAuth kind="teacher" />} /><Route path="/admin/login" element={<TeacherAuth kind="admin" />} /><Route path="/change-password" element={<ChangePassword />} /><Route path="/register" element={<Navigate to="/login" replace />} /><Route path="/students" element={<StudentPanel />} /><Route path="/student/account" element={<StudentAccount />} /><Route path="/join" element={<StudentName />} /><Route path="/play" element={<Student />} /><Route path="/teacher" element={<AccountGate role="teacher" />} /><Route path="/admin" element={<AccountGate role="admin" />} /><Route path="/projector" element={<Projector />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></BrowserRouter></React.StrictMode>);

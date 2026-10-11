@@ -25,6 +25,14 @@ afterEach(async () => {
 });
 
 describe("local teacher content API", () => {
+  it("exposes service health while keeping lesson access authenticated", async () => {
+    const { baseUrl } = await startApi();
+    const health = await fetch(new URL("/health", baseUrl));
+    expect(health.status).toBe(200);
+    expect(await health.json()).toEqual({ ok: true, service: "ckadinti-teacher-content" });
+    expect((await fetch(`${baseUrl}/lessons`)).status).toBe(401);
+  });
+
   it("authenticates requests and serves the lesson list without allowing arbitrary origins", async () => {
     const authorizeTeacher = vi.fn(async (token: string) => token === "valid-teacher-token");
     const { baseUrl, repositories } = await startApi({ authorizeTeacher });
@@ -56,6 +64,22 @@ describe("local teacher content API", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: expect.any(String) });
     expect(getRepositories).toHaveBeenCalledOnce();
+  });
+
+  it("uses one authenticated request to approve all questions and save the quiz", async () => {
+    const quizId = "589eac50-8f4c-4fa3-a151-f04af1f526b2";
+    const approveAll = vi.fn(async () => ({ id: quizId, status: "approved" }));
+    const getRepositories = vi.fn(() => ({ quizzes: { approveAll } } as unknown as ReturnType<typeof createRepositories>));
+    const { baseUrl } = await startApi({ getRepositories });
+
+    const response = await fetch(`${baseUrl}/quizzes/${quizId}/approve-all`, {
+      method: "POST",
+      headers: { Authorization: "Bearer valid-teacher-token" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ quizId, status: "approved" });
+    expect(approveAll).toHaveBeenCalledWith(quizId);
   });
 
   it("binds only to loopback and returns generic database configuration errors", async () => {
