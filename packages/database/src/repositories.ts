@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "./schema.js";
 
@@ -103,6 +103,11 @@ export function createRepositories(db: Database) {
       return db.select().from(schema.quizzes).orderBy(desc(schema.quizzes.updatedAt));
     },
 
+    async delete(id: string) {
+      const deleted = await db.delete(schema.quizzes).where(eq(schema.quizzes.id, id)).returning({ id: schema.quizzes.id });
+      return deleted.length > 0;
+    },
+
     async getForReview(id: string) {
       const [quiz] = await db.select().from(schema.quizzes).where(eq(schema.quizzes.id, id)).limit(1);
       if (!quiz) return null;
@@ -136,6 +141,33 @@ export function createRepositories(db: Database) {
           throw new Error("Every question must be reviewed and approved before approving the quiz.");
         }
         const [quiz] = await tx.update(schema.quizzes).set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() })
+          .where(eq(schema.quizzes.id, id)).returning();
+        return quiz ?? null;
+      });
+    },
+
+    async approveAll(id: string) {
+      return db.transaction(async (tx) => {
+        const [existingQuiz] = await tx.select({ id: schema.quizzes.id })
+          .from(schema.quizzes).where(eq(schema.quizzes.id, id)).limit(1);
+        if (!existingQuiz) return null;
+
+        const questions = await tx.select({ id: schema.questions.id })
+          .from(schema.questions).where(eq(schema.questions.quizId, id));
+        if (!questions.length) throw new Error("Every question must have source evidence before bulk approval.");
+
+        const evidence = await tx.select({ questionId: schema.questionEvidence.questionId })
+          .from(schema.questionEvidence)
+          .where(inArray(schema.questionEvidence.questionId, questions.map((question) => question.id)));
+        const evidencedQuestionIds = new Set(evidence.map((item) => item.questionId));
+        if (questions.some((question) => !evidencedQuestionIds.has(question.id))) {
+          throw new Error("Every question must have source evidence before bulk approval.");
+        }
+
+        const now = new Date();
+        await tx.update(schema.questions).set({ reviewStatus: "approved", updatedAt: now })
+          .where(eq(schema.questions.quizId, id));
+        const [quiz] = await tx.update(schema.quizzes).set({ status: "approved", approvedAt: now, updatedAt: now })
           .where(eq(schema.quizzes.id, id)).returning();
         return quiz ?? null;
       });

@@ -65,7 +65,10 @@ describe("desktop controls against the actual runtime API", () => {
     const answer = await host.app.inject({ method: "POST", url: `/api/v1/sessions/${session.code}/answers`, headers: { authorization: `Bearer ${player.playerToken}` }, payload: { playerId: player.player.id, questionIndex: 0, optionIndex: 0, idempotencyKey: randomUUID() } });
     expect(answer.json().accepted).toBe(true);
     expect((await commandHostedSession(session.code, { type: "reveal" })).reveal?.correctOption).toBe(0);
+    const afterBonusWindow = Date.now() + 8_100;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(afterBonusWindow);
     expect((await commandHostedSession(session.code, { type: "next" })).phase).toBe("ended");
+    clock.mockRestore();
     const results = await getHostedSessionResults(session.code);
     expect(results.leaderboard[0]?.answers[0]).toMatchObject({ answered: true, correct: true, correctAnswer: "Structures page content" });
     expect(results.leaderboard[0]?.score).toBe(host.sessions.get(session.code)!.leaderboard()[0]!.score);

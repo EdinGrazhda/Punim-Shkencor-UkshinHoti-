@@ -24,6 +24,7 @@
   "devDependencies": {
     "drizzle-orm": "^0.43.1",
     "postgres": "^3.4.7",
+    "socket.io-client": "^4.8.1",
     "tsx": "^4.19.2",
     "typescript": "^5.8.3",
     "vitest": "^3.1.2"

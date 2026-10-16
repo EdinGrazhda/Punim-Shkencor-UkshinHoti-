@@ -1,0 +1,23 @@
+.teacher-bulk-approval {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 9px 14px;
+  padding: 12px;
+  border: 1px solid #dce2f3;
+  border-radius: 10px;
+  background: #f8f9ff;
+}
+
+.teacher-bulk-approval p {
+  flex: 1 1 260px;
+  margin: 0;
+}
+
+.teacher-bulk-approval small {
+  flex-basis: 100%;
+  color: #9c3142;
+  font-size: 11px;
+}

@@ -104,12 +104,29 @@ export const ApprovedQuestion = z.object({
 });
 export type ApprovedQuestion = z.infer<typeof ApprovedQuestion>;
 
+export const sessionPlayModeSchema = z.enum(["fixed", "timed-repeat"]);
+export type SessionPlayMode = z.infer<typeof sessionPlayModeSchema>;
+export const MIN_SESSION_DURATION_MS = 60_000;
+export const MAX_SESSION_DURATION_MS = 120 * 60_000;
+
 export const GameSnapshot = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   questions: z.array(ApprovedQuestion).min(1),
+  // Optional to preserve snapshots created before configurable session modes.
+  sessionMode: sessionPlayModeSchema.optional(),
+  sessionDurationMs: z.number().int().min(MIN_SESSION_DURATION_MS).max(MAX_SESSION_DURATION_MS).optional(),
+}).superRefine((snapshot, context) => {
+  if (snapshot.sessionMode === "timed-repeat" && snapshot.sessionDurationMs === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Timed repeat sessions require a duration", path: ["sessionDurationMs"] });
+  }
 });
 export type GameSnapshot = z.infer<typeof GameSnapshot>;
+
+export const nicknameModeSchema = z.enum(["student-choice", "assigned"]);
+export type NicknameMode = z.infer<typeof nicknameModeSchema>;
+export const teamAssignmentModeSchema = z.enum(["manual", "random"]);
+export type TeamAssignmentMode = z.infer<typeof teamAssignmentModeSchema>;
 
 // Runtime contracts shared by the teacher host and student browser. Keep these
 // additive so the lesson/AI/review contracts above remain the single source of truth.
@@ -117,12 +134,14 @@ export const Player = z.object({
   id: z.string().min(1),
   displayName: z.string().trim().min(1).max(32),
   emblem: z.string().trim().min(1).max(32).optional(),
+  teamId: z.string().min(1).optional(),
+  teamName: z.string().min(1).max(32).optional(),
   connected: z.boolean(),
   joinedAt: z.number().int().nonnegative(),
 });
 export type Player = z.infer<typeof Player>;
 
-export const JoinRequest = z.object({ displayName: Player.shape.displayName, emblem: Player.shape.emblem });
+export const JoinRequest = z.object({ displayName: Player.shape.displayName.optional(), emblem: Player.shape.emblem });
 export const SessionCodeParam = z.object({ code: z.string().trim().length(6) });
 export const CreateSessionRequest = z.object({ code: z.string().trim().length(6).optional(), snapshot: GameSnapshot });
 export const ReconnectRequest = z.object({ playerId: Player.shape.id });
@@ -144,6 +163,11 @@ export const HostCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("resume") }),
   z.object({ type: z.literal("end") }),
   z.object({ type: z.literal("lock-lobby"), locked: z.boolean() }),
+  z.object({ type: z.literal("set-team-count"), teamCount: z.union([z.literal(0), z.number().int().min(2).max(6)]) }),
+  z.object({ type: z.literal("set-team-assignment-mode"), teamAssignmentMode: teamAssignmentModeSchema }),
+  z.object({ type: z.literal("set-nickname-mode"), nicknameMode: nicknameModeSchema }),
+  z.object({ type: z.literal("rename-player"), playerId: Player.shape.id, displayName: Player.shape.displayName }),
+  z.object({ type: z.literal("assign-player-team"), playerId: Player.shape.id, teamIndex: z.number().int().min(0).max(6) }),
   z.object({ type: z.literal("kick"), playerId: z.string().min(1) }),
   z.object({ type: z.literal("reveal") }),
   z.object({ type: z.literal("next") }),
@@ -156,25 +180,45 @@ export const PublicQuestion = z.object({
   options: z.array(z.string()),
   deadlineAt: z.number().int().positive(),
   timeLimitMs: z.number().int().positive(),
+  remainingMs: z.number().int().nonnegative().optional(),
 });
 export type PublicQuestion = z.infer<typeof PublicQuestion>;
 
-// Database-free demo only. Deliberately excludes correct answers, explanations,
-// citations and scores; it is not a substitute for an authoritative live session.
+// Database-free demo only. The quiz payload excludes answer keys, explanations,
+// citations and scores; correctness is disclosed only after an answer submission.
 export const StudentQuizPreview = z.object({
   title: z.string().min(1),
+  attemptToken: z.string().uuid(),
   questions: z.array(PublicQuestion.pick({ prompt: true, options: true }).extend({ id: z.string().uuid() })).min(1),
 });
 export type StudentQuizPreview = z.infer<typeof StudentQuizPreview>;
+export const StudentPreviewAnswerSubmission = z.object({
+  attemptToken: z.string().uuid(),
+  questionId: z.string().uuid(),
+  optionIndex: z.number().int().nonnegative(),
+});
+export const StudentPreviewAnswerResult = z.object({
+  correct: z.boolean(),
+  correctAnswer: z.string().min(1),
+});
+export type StudentPreviewAnswerResult = z.infer<typeof StudentPreviewAnswerResult>;
 
 export const PublicSessionState = z.object({
   code: z.string().length(6),
   questionCount: z.number().int().positive(),
+  sessionMode: sessionPlayModeSchema.optional(),
+  sessionDurationMs: z.number().int().positive().optional(),
+  sessionDeadlineAt: z.number().int().positive().optional(),
+  sessionRemainingMs: z.number().int().nonnegative().optional(),
   phase: SessionPhase,
   lobbyLocked: z.boolean(),
-  players: z.array(Player),
+  teamCount: z.number().int().min(0).max(6).optional(),
+  teamAssignmentMode: teamAssignmentModeSchema.optional(),
+  nicknameMode: nicknameModeSchema.optional(),
+  players: z.array(Player.extend({ answered: z.boolean().optional() })),
   question: PublicQuestion.optional(),
   questionIndex: z.number().int().nonnegative().optional(),
+  revealUntil: z.number().int().positive().optional(),
   answeredCount: z.number().int().nonnegative(),
   reveal: z.object({ correctOption: z.number().int().nonnegative(), explanation: z.string().optional() }).optional(),
 });

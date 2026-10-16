@@ -148,6 +148,12 @@ export function createTeacherContentApi(options: TeacherContentApiOptions) {
         sendJson(reply, 200, await repositories.quizzes.list());
         return;
       }
+      if (request.method === "DELETE" && parts.length === 2 && parts[0] === "quizzes") {
+        const quizId = quizIdSchema.parse(parts[1]);
+        if (!await repositories.quizzes.delete(quizId)) throw new Error("not_found");
+        sendJson(reply, 200, { quizId, deleted: true });
+        return;
+      }
       if (request.method === "GET" && parts.length === 2 && parts[0] === "quizzes") {
         const quizId = quizIdSchema.parse(parts[1]);
         const quiz = await repositories.quizzes.getForReview(quizId);
@@ -194,6 +200,13 @@ export function createTeacherContentApi(options: TeacherContentApiOptions) {
       if (request.method === "POST" && parts.length === 3 && parts[0] === "quizzes" && parts[2] === "approve") {
         const quizId = quizIdSchema.parse(parts[1]);
         const quiz = await repositories.quizzes.approve(quizId);
+        if (!quiz) throw new Error("not_found");
+        sendJson(reply, 200, { quizId, status: quiz.status });
+        return;
+      }
+      if (request.method === "POST" && parts.length === 3 && parts[0] === "quizzes" && parts[2] === "approve-all") {
+        const quizId = quizIdSchema.parse(parts[1]);
+        const quiz = await repositories.quizzes.approveAll(quizId);
         if (!quiz) throw new Error("not_found");
         sendJson(reply, 200, { quizId, status: quiz.status });
         return;

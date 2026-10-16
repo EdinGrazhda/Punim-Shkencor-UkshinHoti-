@@ -68,6 +68,8 @@ services:
     ports:
       - "4173:80"
     depends_on:
+      teacher-content:
+        condition: service_healthy
       runtime-host:
         condition: service_healthy
       teacher-content:

@@ -1,8 +1,10 @@
 import { useEffect, useState, type ChangeEvent } from "react";
-import { MAX_LESSON_FILE_BYTES, MAX_LESSON_TEXT_CHARS, MAX_QUIZ_QUESTIONS, questionCountSchema, type GameSnapshot } from "@ckadinti/contracts";
-import { ArrowRight, Check, ClipboardPaste, FileUp, RefreshCw, Save, Sparkles } from "lucide-react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { MAX_LESSON_FILE_BYTES, MAX_LESSON_TEXT_CHARS, MAX_QUIZ_QUESTIONS, questionCountSchema, sessionPlayModeSchema, type GameSnapshot, type SessionPlayMode } from "@ckadinti/contracts";
+import { ArrowRight, Check, ClipboardPaste, FileUp, RefreshCw, Save, Sparkles, Trash2 } from "lucide-react";
 import { readTeacherIdentity, teacherContentApi, type TeacherLesson, type TeacherReviewQuestion, type TeacherReviewQuiz, type TeacherQuizSummary } from "./api";
 import { Badge, Button, Card } from "./ui";
+import "./teacher-review-bulk.css";
 
 type Props = {
   authToken?: string;
@@ -23,9 +25,14 @@ export function TeacherQuizStudio({ authToken, hostingEnabled = true, onCreateSe
   const teacherToken = () => authToken ?? storedTeacherToken();
   const [lessons, setLessons] = useState<TeacherLesson[]>([]);
   const [quizzes, setQuizzes] = useState<TeacherQuizSummary[]>([]);
+  const [selectedQuizIds, setSelectedQuizIds] = useState<Set<string>>(() => new Set());
   const [lessonId, setLessonId] = useState("");
   const [questionCount, setQuestionCount] = useState("8");
   const validQuestionCount = questionCountSchema.safeParse(Number(questionCount)).success;
+  const [sessionSetup, setSessionSetup] = useState<GameSnapshot | null>(null);
+  const [sessionPlayMode, setSessionPlayMode] = useState<SessionPlayMode>("fixed");
+  const [sessionQuestionCount, setSessionQuestionCount] = useState("10");
+  const [sessionDurationMinutes, setSessionDurationMinutes] = useState("10");
   const [review, setReview] = useState<TeacherReviewQuiz | null>(null);
   const [dirtyQuestions, setDirtyQuestions] = useState<Set<string>>(() => new Set());
   const [working, setWorking] = useState(false);
@@ -41,6 +48,7 @@ export function TeacherQuizStudio({ authToken, hostingEnabled = true, onCreateSe
     const [nextLessons, nextQuizzes] = await Promise.all([teacherContentApi.listLessons(token), teacherContentApi.listQuizzes(token)]);
     setLessons(nextLessons);
     setQuizzes(nextQuizzes);
+    setSelectedQuizIds(current => new Set([...current].filter(id => nextQuizzes.some(quiz => quiz.id === id))));
     if (!lessonId && nextLessons[0]) setLessonId(nextLessons[0].id);
     if (keepReview && review) setReview(await teacherContentApi.getQuiz(token, review.id));
   }
@@ -149,10 +157,46 @@ export function TeacherQuizStudio({ authToken, hostingEnabled = true, onCreateSe
     });
   }
 
+  async function approveAllQuestions() {
+    if (!review || dirtyQuestions.size || !review.questions.length || review.questions.some(question => question.evidence.length === 0)) return;
+    await perform(async () => {
+      const result = await teacherContentApi.approveAllQuestions(teacherToken(), review.id);
+      if (result.status !== "approved") throw new Error("Bulk quiz approval was not confirmed. Please refresh and try again.");
+      const updatedReview = await teacherContentApi.getQuiz(teacherToken(), review.id);
+      await refresh(false);
+      setReview(updatedReview);
+      setNotice(`Approved and saved all ${updatedReview.questions.length} questions. The quiz is ready for students.`);
+    });
+  }
+
   async function hostQuiz(quizId: string) {
     await perform(async () => {
       const snapshot = await teacherContentApi.approvedSnapshot(teacherToken(), quizId);
-      await onCreateSession({ ...snapshot, questions: snapshot.questions.map(question => ({ ...question, timeLimitMs: questionSeconds * 1000 })) });
+      setSessionSetup(snapshot);
+      setSessionPlayMode("fixed");
+      setSessionQuestionCount(String(Math.min(10, snapshot.questions.length)));
+      setSessionDurationMinutes("10");
+    });
+  }
+
+  async function createConfiguredSession() {
+    if (!sessionSetup) return;
+    const count = Number(sessionQuestionCount);
+    const durationMinutes = Number(sessionDurationMinutes);
+    const validCount = Number.isInteger(count) && count >= 1 && count <= sessionSetup.questions.length;
+    const validDuration = Number.isInteger(durationMinutes) && durationMinutes >= 1 && durationMinutes <= 120;
+    if (sessionPlayMode === "fixed" && !validCount) return;
+    if (sessionPlayMode === "timed-repeat" && !validDuration) return;
+    await perform(async () => {
+      const questions = sessionPlayMode === "fixed" ? sessionSetup.questions.slice(0, count) : sessionSetup.questions;
+      await onCreateSession({
+        ...sessionSetup,
+        questions: questions.map(question => ({ ...question, timeLimitMs: questionSeconds * 1000 })),
+        ...(sessionPlayMode === "timed-repeat"
+          ? { sessionMode: "timed-repeat", sessionDurationMs: durationMinutes * 60_000 }
+          : { sessionMode: "fixed", sessionDurationMs: undefined }),
+      });
+      setSessionSetup(null);
     });
   }
 
@@ -164,6 +208,37 @@ export function TeacherQuizStudio({ authToken, hostingEnabled = true, onCreateSe
       setDirtyQuestions(new Set());
       await refresh(false);
       setNotice(`Draft generated. Check every question and its source evidence before approval.${result.sampledSource ? " This long lesson was sampled across sections; the quiz does not cover every page." : ""}`);
+    });
+  }
+
+  function toggleQuizSelection(quizId: string) {
+    setSelectedQuizIds(current => {
+      const next = new Set(current);
+      if (next.has(quizId)) next.delete(quizId);
+      else next.add(quizId);
+      return next;
+    });
+  }
+
+  async function deleteSelectedQuizzes() {
+    const ids = [...selectedQuizIds];
+    if (!ids.length || !window.confirm(`Permanently delete ${ids.length} selected ${ids.length === 1 ? "quiz" : "quizzes"} and their questions? This cannot be undone.`)) return;
+    await perform(async () => {
+      const deletedIds: string[] = [];
+      const failedIds: string[] = [];
+      for (const id of ids) {
+        try {
+          await teacherContentApi.deleteQuiz(teacherToken(), id);
+          deletedIds.push(id);
+        } catch {
+          failedIds.push(id);
+        }
+      }
+      if (review && deletedIds.includes(review.id)) { setReview(null); setDirtyQuestions(new Set()); }
+      setSelectedQuizIds(current => new Set([...current].filter(id => !deletedIds.includes(id))));
+      await refresh(false);
+      if (failedIds.length) throw new Error(`Deleted ${deletedIds.length} ${deletedIds.length === 1 ? "quiz" : "quizzes"}; ${failedIds.length} could not be deleted. Refresh and try those again.`);
+      setNotice(`Deleted ${deletedIds.length} ${deletedIds.length === 1 ? "quiz" : "quizzes"}.`);
     });
   }
 
@@ -196,8 +271,8 @@ export function TeacherQuizStudio({ authToken, hostingEnabled = true, onCreateSe
       <Card className="teacher-studio-card"><Badge>STEP 2</Badge><h2>Generate a draft</h2><p>AI drafts source-grounded questions. It cannot approve or publish them.</p><label className="teacher-studio-field">Question count<input type="number" min={1} max={MAX_QUIZ_QUESTIONS} step={1} value={questionCount} onChange={event => setQuestionCount(event.target.value)} aria-describedby="question-count-help" /></label><p id="question-count-help">Choose any whole number from 1 to {MAX_QUIZ_QUESTIONS}. Large quizzes run in batches. Very long lessons may be sampled across sections; enough source material is needed for distinct questions.</p>{!validQuestionCount && <p role="alert">Enter a whole number from 1 to {MAX_QUIZ_QUESTIONS}.</p>}{hasUnsavedText && <p>Add your text to the library first to use it for this draft.</p>}<Button onClick={() => void generateQuiz()} disabled={working || !lessonId || !validQuestionCount || hasUnsavedText}><Sparkles size={16} /> {working ? "Working…" : "Generate quiz draft"}</Button></Card>
     </div>
 
-    <Card className="teacher-studio-card teacher-studio-library"><div className="section-title"><div><Badge>STEP 3</Badge><h2>Drafts and approved quizzes</h2></div><Button variant="outline" onClick={() => void perform(() => refresh())} disabled={working}><RefreshCw size={15} /> Refresh</Button></div>
-      {quizzes.length ? <div className="teacher-quiz-list">{quizzes.map(quiz => <div className="teacher-quiz-row" key={quiz.id}><div><strong>{quiz.title}</strong><small>{quiz.status.replace("-", " ")} · {quiz.difficulty} · {new Date(quiz.updatedAt).toLocaleDateString()}</small></div><Badge className={quiz.status === "approved" ? "phase-badge" : ""}>{quiz.status.replace("-", " ")}</Badge><Button variant="outline" onClick={() => void loadReview(quiz.id)} disabled={working}>Review</Button>{!hostingEnabled && quiz.status === "approved" && <a className="ui-button ui-button-outline" href={`/student-preview.html?quiz=${quiz.id}`} target="_blank" rel="noopener noreferrer">Student preview</a>}{hostingEnabled && quiz.status === "approved" && <Button onClick={() => void hostQuiz(quiz.id)} disabled={working || busy}>Host <ArrowRight size={15} /></Button>}</div>)}</div> : <div className="teacher-studio-empty">No quiz drafts yet.</div>}
+    <Card className="teacher-studio-card teacher-studio-library"><div className="section-title"><div><Badge>STEP 3</Badge><h2>Drafts and approved quizzes</h2></div><div className="teacher-quiz-library-actions">{quizzes.length > 0 && <><label className="teacher-quiz-select-all"><input type="checkbox" aria-label="Select all quizzes" checked={selectedQuizIds.size === quizzes.length} onChange={() => setSelectedQuizIds(current => current.size === quizzes.length ? new Set() : new Set(quizzes.map(quiz => quiz.id)))} /> Select all</label><Button variant="outline" onClick={() => void deleteSelectedQuizzes()} disabled={working || selectedQuizIds.size === 0}><Trash2 size={15} /> Delete selected ({selectedQuizIds.size})</Button></>}<Button variant="outline" onClick={() => void perform(() => refresh())} disabled={working}><RefreshCw size={15} /> Refresh</Button></div></div>
+      {quizzes.length ? <div className="teacher-quiz-list">{quizzes.map(quiz => <div className="teacher-quiz-row selectable-quiz-row" key={quiz.id}><input className="teacher-quiz-checkbox" type="checkbox" aria-label={`Select ${quiz.title}`} checked={selectedQuizIds.has(quiz.id)} onChange={() => toggleQuizSelection(quiz.id)} /><div className="teacher-quiz-title"><strong>{quiz.title}</strong><small>{quiz.status.replace("-", " ")} · {quiz.difficulty} · {new Date(quiz.updatedAt).toLocaleDateString()}</small></div><Badge className={quiz.status === "approved" ? "phase-badge" : ""}>{quiz.status.replace("-", " ")}</Badge><Button variant="outline" onClick={() => void loadReview(quiz.id)} disabled={working}>Review</Button>{!hostingEnabled && quiz.status === "approved" && <a className="ui-button ui-button-outline" href={`/student-preview.html?quiz=${quiz.id}`} target="_blank" rel="noopener noreferrer">Student preview</a>}{hostingEnabled && quiz.status === "approved" && <Button onClick={() => void hostQuiz(quiz.id)} disabled={working || busy}>Host <ArrowRight size={15} /></Button>}</div>)}</div> : <div className="teacher-studio-empty">No quiz drafts yet.</div>}
     </Card>
 
     {review && <Card className="teacher-studio-card teacher-review-panel"><div className="section-title"><div><Badge>TEACHER REVIEW</Badge><h2>{review.title}</h2></div><Badge className={review.status === "approved" ? "phase-badge" : ""}>{review.status.replace("-", " ")}</Badge></div><p>Check accuracy, answer choices, explanation, and cited lesson text. Editing a question clears its approval.</p>
@@ -209,7 +284,20 @@ export function TeacherQuizStudio({ authToken, hostingEnabled = true, onCreateSe
         <div className="teacher-evidence"><strong>Source evidence</strong>{question.evidence.length ? question.evidence.map(item => <blockquote key={item.id}>{item.quote || "Source quote unavailable"}<small>{item.blockOrdinal === null ? "Lesson block unavailable" : `Lesson block ${item.blockOrdinal + 1}`}</small></blockquote>) : <p>No evidence citation was returned. Do not approve without verifying against the lesson.</p>}</div>
         {question.reviewStatus === "approved" && !dirtyQuestions.has(question.id) && <p className="teacher-question-confirmation"><Check size={16} /> Approval saved for question {index + 1}.</p>}<div className="teacher-review-actions"><Button variant="outline" onClick={() => void saveQuestion(question)} disabled={working || !dirtyQuestions.has(question.id)}><Save size={15} /> Save edits</Button><Button variant="outline" onClick={() => void decide(question.id, "rejected")} disabled={working || dirtyQuestions.has(question.id) || question.reviewStatus === "rejected"}>Reject</Button><Button onClick={() => void decide(question.id, "approved")} disabled={working || dirtyQuestions.has(question.id) || question.evidence.length === 0 || question.reviewStatus === "approved"}><Check size={15} /> {question.reviewStatus === "approved" ? "Approved" : "Approve question"}</Button></div>
       </article>)}</div>
-      {review.status === "approved" && dirtyQuestions.size === 0 && <div className="teacher-quiz-saved"><strong><Check size={17} /> Quiz saved and approved</strong><p>{hostingEnabled ? "Create a live session below to invite students." : "Saved in this demo session until the server restarts. Open a separate student view on this computer; it contains no correct answers."}</p>{!hostingEnabled && <a className="ui-button ui-button-primary" href={`/student-preview.html?quiz=${review.id}`} target="_blank" rel="noopener noreferrer">Open student preview <ArrowRight size={16} /></a>}</div>}<div className="teacher-review-footer"><Button variant="outline" onClick={() => void approveQuiz()} disabled={working || dirtyQuestions.size > 0 || !review.questions.length || review.questions.some(question => question.reviewStatus !== "approved") || review.status === "approved"}>{review.status === "approved" ? "Quiz saved and approved" : "Save and approve quiz"}</Button>{hostingEnabled && review.status === "approved" && <><label className="question-timer-setting">Seconds per question<input type="number" min={1} max={600} value={questionSeconds} onChange={event => setQuestionSeconds(Math.max(1, Math.min(600, Number(event.target.value) || 10)))} /></label><Button onClick={() => void hostQuiz(review.id)} disabled={working || busy}>Create live session <ArrowRight size={16} /></Button></>}</div>
+      {review.status === "approved" && dirtyQuestions.size === 0 && <div className="teacher-quiz-saved"><strong><Check size={17} /> Quiz saved and approved</strong><p>{hostingEnabled ? "Create a live session below to invite students." : "Saved in this demo session until the server restarts. Open a student practice quiz on this computer."}</p>{!hostingEnabled && <a className="ui-button ui-button-primary" href={`/student-preview.html?quiz=${review.id}`} target="_blank" rel="noopener noreferrer">Open student preview <ArrowRight size={16} /></a>}</div>}<div className="teacher-review-footer">{review.status !== "approved" && review.questions.some(question => question.reviewStatus !== "approved") && <div className="teacher-bulk-approval"><p>Bulk approval saves and approves every question above. Verify the lesson evidence before continuing.</p><Button onClick={() => void approveAllQuestions()} disabled={working || dirtyQuestions.size > 0 || !review.questions.length || review.questions.some(question => question.evidence.length === 0)}><Check size={15} /> Approve all &amp; save quiz</Button>{review.questions.some(question => question.evidence.length === 0) && <small>Bulk approval is unavailable while a question has no source evidence.</small>}</div>}{(review.status === "approved" || review.questions.every(question => question.reviewStatus === "approved")) && <Button variant="outline" onClick={() => void approveQuiz()} disabled={working || dirtyQuestions.size > 0 || !review.questions.length || review.questions.some(question => question.reviewStatus !== "approved") || review.status === "approved"}>{review.status === "approved" ? "Quiz saved and approved" : "Save and approve quiz"}</Button>}{hostingEnabled && review.status === "approved" && <Button onClick={() => void hostQuiz(review.id)} disabled={working || busy}>Set up live session <ArrowRight size={16} /></Button>}</div>
     </Card>}
+    {hostingEnabled && <DialogPrimitive.Root open={Boolean(sessionSetup)} onOpenChange={open => { if (!open && !working) setSessionSetup(null); }}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="dialog-overlay" />
+        <DialogPrimitive.Content className="dialog-content session-setup-dialog">
+          <DialogPrimitive.Title>Set up your classroom session</DialogPrimitive.Title>
+          <DialogPrimitive.Description>{sessionSetup?.title}. Choose how the class will play; the response timer remains separate.</DialogPrimitive.Description>
+          <label className="teacher-studio-field">Quiz mode<select value={sessionPlayMode} onChange={event => setSessionPlayMode(sessionPlayModeSchema.parse(event.target.value))} disabled={working}><option value="fixed">Fixed number of questions</option><option value="timed-repeat">Timed shuffle — repeat until time runs out</option></select></label>
+          {sessionPlayMode === "fixed" ? <label className="teacher-studio-field">Questions to play<input type="number" min={1} max={sessionSetup?.questions.length ?? 1} step={1} value={sessionQuestionCount} onChange={event => setSessionQuestionCount(event.target.value)} aria-describedby="session-count-help" disabled={working} /><small id="session-count-help">Plays the first N questions in the approved quiz exactly once (1–{sessionSetup?.questions.length ?? 0}).</small></label> : <label className="teacher-studio-field">Overall game duration (minutes)<input type="number" min={1} max={120} step={1} value={sessionDurationMinutes} onChange={event => setSessionDurationMinutes(event.target.value)} aria-describedby="session-duration-help" disabled={working} /><small id="session-duration-help">All approved questions are shuffled into rounds and repeated until time runs out.</small></label>}
+          <label className="teacher-studio-field">Seconds to answer each question<input type="number" min={1} max={600} step={1} value={questionSeconds} onChange={event => setQuestionSeconds(Math.max(1, Math.min(600, Number(event.target.value) || 10)))} disabled={working} /><small>This response timer applies in either quiz mode.</small></label>
+          <div className="dialog-actions"><DialogPrimitive.Close asChild><Button variant="ghost" disabled={working}>Cancel</Button></DialogPrimitive.Close><Button onClick={() => void createConfiguredSession()} disabled={working || busy || !sessionSetup || (sessionPlayMode === "fixed" ? !(Number.isInteger(Number(sessionQuestionCount)) && Number(sessionQuestionCount) >= 1 && Number(sessionQuestionCount) <= sessionSetup.questions.length) : !(Number.isInteger(Number(sessionDurationMinutes)) && Number(sessionDurationMinutes) >= 1 && Number(sessionDurationMinutes) <= 120))}>{working || busy ? "Creating…" : "Create live session"}</Button></div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>}
   </div>;
 }

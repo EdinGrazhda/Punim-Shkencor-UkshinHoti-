@@ -1,8 +1,10 @@
 import type {
   GameSnapshot,
   HostCommand,
+  Player,
   PublicSessionState,
 } from "@ckadinti/contracts";
+import { StudentPreviewAnswerResult } from "@ckadinti/contracts";
 import { io, type Socket } from "socket.io-client";
 
 export type PlayerIdentity = {
@@ -12,6 +14,12 @@ export type PlayerIdentity = {
   name: string;
   emblem: string;
 };
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
 export type StudentAccountIdentity = {
   student: { id: string; name: string; email: string };
   token: string;
@@ -131,14 +139,18 @@ export type PlayerResult = {
   };
 };
 export type Leaderboard = {
-  leaderboard: { id: string; displayName: string; score: number }[];
+  leaderboard: { id: string; displayName: string; score: number; teamId?: string; teamName?: string }[];
+  teams?: { id: string; name: string; score: number; players: number }[];
   questions: number;
 };
 export type HostResults = {
+  teams?: { id: string; name: string; score: number; players: number }[];
   leaderboard: {
     id: string;
     displayName: string;
     score: number;
+    teamId?: string;
+    teamName?: string;
     answers: {
       questionIndex: number;
       prompt: string;
@@ -238,17 +250,25 @@ async function request<T>(
       ...init.headers,
     },
   });
-  const data = await response.json();
-  if (!response.ok)
-    throw new Error(
-      data.error === "session_not_found"
-        ? "Game code not found."
-        : data.error === "lobby_closed"
-          ? "This lobby is closed."
-          : data.error === "unauthorized"
-            ? "Session access expired. Please join again."
-            : (data.error ?? "Request failed."),
-    );
+  const data = await response.json().catch(() => ({})) as { error?: string };
+  if (!response.ok) {
+    const message = data.error === "session_not_found"
+      ? "Game code not found."
+      : data.error === "lobby_closed"
+        ? "This lobby is closed."
+        : data.error === "unauthorized"
+          ? "Session access expired. Please reconnect or join again."
+          : data.error === "nickname_required"
+            ? "Enter a classroom nickname to join this game."
+            : data.error === "nickname_taken"
+              ? "That nickname is already in this game. Choose another."
+              : data.error === "nickname_invalid"
+                ? "Choose a nickname without links or unsupported characters."
+                : data.error === "player_not_found"
+                  ? "Your player session is no longer in this game. Please rejoin."
+                  : (data.error ?? "Request failed.");
+    throw new ApiRequestError(message, response.status, data.error);
+  }
   return data as T;
 }
 
@@ -374,12 +394,12 @@ export const api = {
     ),
   join: (
     code: string,
-    displayName: string,
+    displayName: string | undefined,
     emblem: string,
     studentToken?: string,
   ) =>
     request<{
-      player: { id: string };
+      player: Player;
       playerToken: string;
       state: PublicSessionState;
     }>(
@@ -388,7 +408,7 @@ export const api = {
       studentToken,
     ),
   reconnect: (identity: PlayerIdentity) =>
-    request<{ state: PublicSessionState }>(
+    request<{ player: Player; state: PublicSessionState }>(
       `/sessions/${identity.code}/players/reconnect`,
       { method: "POST", body: JSON.stringify({ playerId: identity.id }) },
       identity.token,
@@ -466,9 +486,9 @@ async function teacherContentRequest<T>(
       },
     });
   } catch {
-    throw new Error("Cannot reach the lesson service. Check your connection and try again.");
+    throw new Error("Cannot reach the lesson service. Start the teacher-content service in Docker, or keep the Electron desktop app open for local development.");
   }
-  const unavailableMessage = "The lesson service is temporarily unavailable. Please try again shortly.";
+  const unavailableMessage = `Lesson service returned HTTP ${response.status}. Check that the Docker teacher-content service or Electron desktop app is running.`;
   const text = await response.text();
   if (response.status === 413) throw new Error("Lesson files must be 50 MB or smaller.");
   let data: Record<string, unknown> = {};
@@ -527,6 +547,8 @@ export const teacherContentApi = {
     }),
   listQuizzes: (token: string) =>
     teacherContentRequest<TeacherQuizSummary[]>("/quizzes", token),
+  deleteQuiz: (token: string, id: string) =>
+    teacherContentRequest<{ quizId: string; deleted: true }>(`/quizzes/${id}`, token, { method: "DELETE" }),
   getQuiz: (token: string, id: string) =>
     teacherContentRequest<TeacherReviewQuiz>(`/quizzes/${id}`, token),
   saveQuestion: (
@@ -578,28 +600,55 @@ export const teacherContentApi = {
       token,
       { method: "POST" },
     ),
+  approveAllQuestions: (token: string, quizId: string) =>
+    teacherContentRequest<{ quizId: string; status: "approved" }>(
+      `/quizzes/${quizId}/approve-all`,
+      token,
+      { method: "POST" },
+    ),
   approvedSnapshot: (token: string, quizId: string) =>
     teacherContentRequest<GameSnapshot>(`/quizzes/${quizId}/snapshot`, token, {
       method: "POST",
     }),
 };
 
+export const studentQuizPreviewApi = {
+  submitAnswer: (quizId: string, input: { attemptToken: string; questionId: string; optionIndex: number }) =>
+    fetch(`/api/ai-demo/quizzes/${quizId}/student-preview/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }).then(async response => {
+      const body: unknown = await response.json();
+      if (!response.ok) {
+        const message = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : "This answer could not be checked.";
+        throw new Error(message);
+      }
+      return StudentPreviewAnswerResult.parse(body);
+    }),
+};
+
 export function watchSession(
   code: string,
   onState: (state: PublicSessionState) => void,
+  onConnection?: (connected: boolean) => void,
+  player?: PlayerIdentity,
 ): Socket {
   const socket = io(window.location.origin, {
     transports: ["websocket", "polling"],
   });
-  socket.on("connect", () =>
+  socket.on("connect", () => {
+    onConnection?.(true);
     socket.emit(
       "session:watch",
-      { code },
+      { code, ...(player ? { playerId: player.id, playerToken: player.token } : {}) },
       (reply: { ok: boolean; state?: PublicSessionState }) => {
         if (reply.ok && reply.state) onState(reply.state);
       },
-    ),
-  );
+    );
+  });
+  socket.on("disconnect", () => onConnection?.(false));
+  socket.on("connect_error", () => onConnection?.(false));
   socket.on("session:state", onState);
   return socket;
 }

@@ -8,7 +8,13 @@ Read [AGENTS.md](AGENTS.md) for repository rules and [docs/TEAM_TASKS.md](docs/T
 
 The teacher desktop app uses Electron, React, and TypeScript. It imports TXT, Markdown, text/scanned PDF, and DOCX lessons, normalizes them into evidence blocks, and persists them with PostgreSQL/Drizzle. A teacher can generate a quiz draft through the selected OpenAI, Gemini or Kilo API, review/edit questions and evidence, approve the quiz, and export an approved runtime snapshot. The review screen supports add, duplicate, delete, reorder, bulk approval, and per-question regeneration.
 
-The Arron branch now includes a local integrated copy of Edin's student/teacher/admin/projector browser UI and Fastify/Socket.IO runtime. The integrated browser teacher workspace also uses Arron's lesson import, AI draft, teacher review, and approved-snapshot flow to create a game. Runtime sessions, accepted answers, events, and score state are stored in PostgreSQL and restored after a host restart. The teacher can recover the latest host session and view completed-session history and reports. The separate desktop host view still reports sessions created during its current run.
+The `test-main` branch is the local integration branch for trying the complete browser classroom flow. It includes the student/teacher/admin/projector UI and Fastify/Socket.IO runtime, connected to the teacher lesson-import, AI-draft, review, and approved-snapshot workflow. Runtime sessions and results are stored in PostgreSQL and restored after a host restart; the teacher can recover the current session and review completed reports. The projector lobby displays a QR code beneath its join code. The separate desktop host view still reports sessions created during its current run.
+
+When hosting an approved quiz, teachers can choose a fixed question count (default 10, capped by the questions in that quiz) or **Timed shuffle**, which randomizes the approved question pool and repeats shuffled rounds until the selected overall duration (default 10 minutes; 1–120 minutes) expires. The existing per-question response timer applies in both modes. Students and the projector see the overall countdown in timed mode; pausing the game pauses that clock too.
+
+In the lobby, teachers can enable 2–6 teams and choose randomized balanced assignment or manual placement. Random mode shuffles the roster into even teams and places new arrivals into a smallest team; manual mode leaves students unassigned until the teacher places them. Teachers can also choose student nicknames or server-assigned classroom aliases, edit each student's display name, lock joining, see connection and answer status, and remove a student with confirmation. Students retain their player identity through temporary network interruptions; the browser retries reconnecting and the host sees online/offline state updates.
+
+Teachers can select one or more quizzes in the quiz library and delete them after confirmation. In live classroom games, correctness stays hidden until the teacher reveals the question; students who answered incorrectly see the correct answer and explanation for three seconds. The separate local practice preview continues to give immediate feedback.
 
 This is still an integration preview, not yet merge-ready for `main`: the runtime persistence and migration changes have unit/restart coverage, but have not been exercised against a disposable PostgreSQL test database in this environment. Full CI and classroom acceptance checks are also pending. Correctness and scores stay hidden until reveal. See [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) and [docs/CROSS_BRANCH_ALIGNMENT.md](docs/CROSS_BRANCH_ALIGNMENT.md).
 
@@ -18,6 +24,8 @@ This is still an integration preview, not yet merge-ready for `main`: the runtim
 
 For a temporary PDF-to-quiz test, set `AI_PROVIDER=kilo` and `KILO_MODEL=nvidia/nemotron-3-super-120b-a12b:free` in the ignored root `.env`, then run `corepack pnpm dev:ai-demo`. Open [the AI quiz demo](http://127.0.0.1:4175/ai-demo.html). No database, Electron process, login, or API key is required for this mode.
 
+To share this temporary demo on a trusted LAN, set `AI_DEMO_LAN_HOST` to this computer's private IPv4 address and `AI_DEMO_LAN_ACCESS_CODE` to a random URL-safe secret of at least 32 characters before starting it. Share the demo URL with `#access=<secret>` only with trusted people. The server binds only to that address; teacher-session access requires the share code. Keep any firewall allowance limited to the local subnet, and do not use LAN mode on untrusted Wi-Fi.
+
 The demo reuses the integrated teacher quiz studio and the real import/generation/evidence-validation services. Download the sample HTML lesson PDF from the page (or upload your own TXT, Markdown, text/scanned PDF or DOCX), enter a question count, generate, and review the answers and exact source quotes. Lessons and drafts live in memory and disappear when the demo server stops; live classroom hosting is disabled. Normal app persistence remains PostgreSQL.
 
 #### Try approval and the student preview
@@ -25,8 +33,10 @@ The demo reuses the integrated teacher quiz studio and the real import/generatio
 1. Open **Review**, inspect each question and its evidence, then click **Approve question**. A visible confirmation and an **Approved** button show that the approval was saved.
 2. After every question is approved, click **Save and approve quiz**. The saved confirmation offers **Open student preview**; the quiz library also retains a preview link after refreshing the page.
 3. Open that link to try the questions and select answers in a separate student view. The public preview receives only the title, question IDs, prompts and choices—no answer key, explanations or scores. Editing a saved question invalidates approval and blocks new preview requests until re-approval.
+4. Students select an option to see immediately whether it is right; an incorrect choice also reveals the correct option. After the last question, **View score** shows the result. Each preview attempt accepts one answer per question; responses and scores are temporary and are not saved.
+5. In the demo quiz library, select one or more rows and click **Delete selected**. Confirm the permanent deletion to remove those quizzes and their questions from the demo.
 
-This is a **same-computer, memory-only demo**: saving survives browser refresh, not a server restart. Student selections stay in that tab and are not submitted, graded or persisted. It is not a LAN lobby or live classroom game. PostgreSQL persistence and authoritative classroom play remain part of the full-app phase. After changing shared contracts, rebuild `@ckadinti/contracts` and restart the demo before testing; a restart clears its temporary content.
+This is a **same-computer, memory-only demo**: saving survives browser refresh, not a server restart. Quiz answers and scores are checked for practice only and are not persisted; this preview is not the authoritative LAN game. PostgreSQL persistence and live classroom play remain part of the full-app phase. After changing shared contracts, rebuild `@ckadinti/contracts` and restart the demo before testing; a restart clears its temporary content.
 
 #### PDF support and custom question counts
 
@@ -62,15 +72,21 @@ If the browser teacher page reports that the lesson service is unavailable, chec
 
 For LAN students, set `STUDENT_ORIGIN=http://<teacher-LAN-IP>:4173` in the ignored root `.env`, then run `docker compose up -d --build runtime-host teacher-content student` so the services use the new address. Open `http://<teacher-LAN-IP>:4173` on another device on the same network. Teachers can use either that address or localhost; the dashboard's join link and QR code use the configured LAN address, including after restoring a session. Students use the same address for the page, API, and realtime updates; the runtime's direct port 4310 remains on loopback. Port 4173 must be reachable through the local firewall and Wi-Fi client isolation must be off. If the teacher's LAN IP changes, update `STUDENT_ORIGIN` and recreate the services again.
 
-For a Docker preview, run `docker compose up -d --build` after creating `.env`. Open [the browser app](http://localhost:4173) and [runtime health](http://localhost:4310/health). Compose starts PostgreSQL, the game runtime, the browser app, and a trusted `teacher-content` service that reuses the desktop import/generation/review pipeline. Electron does not need to be running for this setup. Teacher login is required for content requests; provider keys stay in the server container. To create a preview administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.test "Preview Admin"` and save the one-time password printed in that terminal. Accounts are preview-only; do not use real student data.
-
-In **Create Game**, choose **Upload file** for PDF/TXT/Markdown/DOCX, or **Paste text** to enter a lesson and optional title. Click **Add text to library**, choose the question count, and click **Generate quiz draft**. Both sources use the same saved lesson library, source evidence, and mandatory teacher review. PDF uploads support up to 50 MB through the browser proxy; English OCR is bundled in the content container. To use other OCR languages in Docker, mount the local language-pack folder and set `PDF_OCR_DATA_PATH` inside that service.
-
 ### Classroom round rules
 
 Questions default to **10 seconds**. The teacher can change the time before hosting or apply a new time in the lobby. The server closes answers at the deadline, shows feedback, and moves to the next question automatically. A wrong submitted answer shows the student's choice in red, the correct choice in green, and awards exactly **10 XP**.
 
 After a correct answer is revealed, the student chooses one of three shuffled mystery boxes: **+150 points**, **+300 points**, or **Hack**. A fixed box position gives Hack one chance in three per pick. Hack lets the student choose another player and transfers **15% of that player's current points**. The choice window lasts at most eight seconds and closes sooner after every eligible student finishes. If no other player joined, the Hack box grants +150 points. The server owns every outcome and persists it across restarts.
+
+For a Wi-Fi classroom demo on Windows, start the services with `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-lan-demo.ps1`. It detects the active private Wi-Fi/Ethernet IPv4 address, supplies it as `STUDENT_ORIGIN`, builds and starts Docker Compose, and prints the teacher/student URL. Open the teacher app using that printed LAN URL (not `localhost`) so projector QR codes are scannable from student devices. Students must be on the same Wi-Fi. Only the web app on port 4173 is exposed to the LAN; the runtime API is loopback-only and proxied through the web app. If other devices cannot connect, allow inbound TCP 4173 on the Windows Private firewall profile for the local subnet. Do not expose the demo to the public internet.
+
+For a Docker preview on this computer only, set `POSTGRES_PASSWORD` and your selected AI provider in the ignored `.env`, then run `docker compose up -d --build`. Compose starts PostgreSQL, the game runtime, the teacher-content service, and the web app. Docker authoring does not require Electron. Sign in with a teacher account and open [Create Game](http://127.0.0.1:4173/teacher?tab=create). Under **Add a lesson**, choose **Upload file** for PDF/TXT/Markdown/DOCX, or **Paste text** and **Add text to library**. Then select your lesson and generate a draft. The same import controls are available in the temporary AI demo. English OCR is bundled in the content container; other OCR languages need a mounted local language-pack folder and `PDF_OCR_DATA_PATH`.
+
+If upgrading an existing Docker demo, rebuild both `teacher-content` and `student`; an older web image lacks the text box and routes lesson requests to the game API. Check `docker compose ps` for a healthy teacher-content service. Its internal port 4320 is proxied through the web server, with a 50 MB upload limit and a longer timeout for OCR/generation. Secrets remain inside the service environment and are excluded from Docker build contexts.
+
+On Windows, verify this integration with `Get-Content scripts/smoke-browser-content.mjs -Raw | docker compose exec -T teacher-content node --input-type=module`. It creates and cleans up a disposable teacher and TXT/PDF lessons through the real web proxy. To also call the configured AI provider for three questions, add `-e SMOKE_GENERATE=1` before `teacher-content`.
+
+To create a preview administrator, run `docker compose exec runtime-host node packages/runtime-host/dist/bootstrap-admin.js admin@example.test "Preview Admin"` and save the one-time password printed in that terminal. Create a teacher account from the admin page, then use teacher sign-in for authoring. Accounts are preview-only; do not use real student data.
 
 ## Checks
 
@@ -88,5 +104,6 @@ After a correct answer is revealed, the student chooses one of three shuffled my
 
 - `Arron`: teacher desktop, lesson ingestion, AI generation, quiz review, teacher reports.
 - `Edin`: student browser, LAN game host, realtime protocol, runtime scoring and analytics.
+- `test-main`: local integration branch for combined app testing and feature demonstrations.
 
 The attached deep-research report is the original product brief. The team selected PostgreSQL instead of its SQLite recommendation; see [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).

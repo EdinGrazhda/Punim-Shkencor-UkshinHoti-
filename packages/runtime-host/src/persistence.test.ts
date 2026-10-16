@@ -123,17 +123,28 @@ describe("runtime session persistence", () => {
       headers: { authorization: "Bearer " + playerToken, "x-player-id": player.id },
     })).json()).toMatchObject({ correct: true, correctOption: 1 });
 
-    await secondHost.app.inject({
+    const earlyNext = await secondHost.app.inject({
       method: "POST",
       url: "/api/v1/sessions/PERS01/commands",
       headers: { authorization: "Bearer " + renewedHostToken },
       payload: { command: { type: "next" } },
     });
+    expect(earlyNext.statusCode).toBe(409);
+    const afterBonusWindow = Date.now() + 8_100;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(afterBonusWindow);
+    const completed = await secondHost.app.inject({
+      method: "POST",
+      url: "/api/v1/sessions/PERS01/commands",
+      headers: { authorization: "Bearer " + renewedHostToken },
+      payload: { command: { type: "next" } },
+    });
+    expect(completed.statusCode).toBe(200);
     const report = await secondHost.app.inject({
       method: "GET",
       url: "/api/v1/sessions/PERS01/host/results",
       headers: { authorization: "Bearer " + renewedHostToken },
     });
+    clock.mockRestore();
     expect(report.statusCode).toBe(200);
     expect(report.json().leaderboard[0].answers[0]).toMatchObject({ correct: true, selectedAnswer: "4" });
 

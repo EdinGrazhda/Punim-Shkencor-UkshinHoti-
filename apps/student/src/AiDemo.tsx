@@ -8,7 +8,11 @@ function AiDemo() {
   const [error, setError] = useState("");
   const [seconds, setSeconds] = useState(30);
   useEffect(() => {
-    void fetch("/api/ai-demo/session").then(async response => {
+    const accessCode = new URLSearchParams(window.location.hash.slice(1)).get("access");
+    void fetch("/api/ai-demo/session", {
+      headers: accessCode ? { "X-AI-Demo-Access-Code": accessCode } : undefined,
+    }).then(async response => {
+      if (response.status === 403) throw new Error("This is a protected LAN demo. Open the private share link from its owner.");
       if (!response.ok) throw new Error("Start the demo with pnpm dev:ai-demo and open port 4175.");
       setSession(await response.json());
     }).catch(cause => setError(String(cause.message)));

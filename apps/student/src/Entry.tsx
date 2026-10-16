@@ -16,16 +16,13 @@ export function StudentName() {
   const code = new URLSearchParams(window.location.search).get("code") ?? "";
   function continueToCode(event: FormEvent) {
     event.preventDefault();
-    if (!name.trim()) return;
-    sessionStorage.setItem("ckadinti-student-name", name.trim());
+    if (name.trim()) sessionStorage.setItem("ckadinti-student-name", name.trim());
+    else sessionStorage.removeItem("ckadinti-student-name");
     sessionStorage.setItem("ckadinti-join-as-guest", "1");
     localStorage.removeItem("ckadinti-player");
     navigate(`/play${code ? `?code=${encodeURIComponent(code)}` : ""}`);
   }
-  return <div className="student-name-page"><div className="entry-art" /><header className="entry-header"><Link to="/"><Brand /></Link><Link to="/student/account">Student account</Link></header><main className="student-name-main">
-    <section className="student-name-story"><Badge className="light-badge">GUEST ENTRY · STEP 1 OF 2</Badge><h1>Your next adventure <em>starts here.</em></h1><p>Choose the name your classmates will see, then enter the code from your teacher. No account needed.</p><div className="student-name-perks"><span><Sparkles size={18} /> Join in seconds</span><span><Gamepad2 size={18} /> Play with your class</span></div></section>
-    <Card className="student-name-card"><div className="entry-choice-icon"><Gamepad2 size={25} /></div><span className="student-dashboard-kicker">YOUR PLAYER NAME</span><h2>What should we call you?</h2><p>This name will appear in the game.</p><form onSubmit={continueToCode}><label htmlFor="student-name">Your name</label><Input id="student-name" autoComplete="given-name" autoFocus value={name} onChange={event => setName(event.target.value)} maxLength={32} required placeholder="Type your name" /><Button type="submit" disabled={!name.trim()}>Continue to game code <ArrowRight size={18} /></Button></form><div className="student-account-prompt">Want your profile remembered? <Link to={`/student/account${code ? `?code=${encodeURIComponent(code)}` : ""}`}>{account ? "Open student account" : "Create or sign in"}</Link></div></Card>
-  </main><footer className="join-footer">Next up: enter your teacher’s six-character code.</footer></div>;
+  return <div className="student-name-page"><div className="entry-art" /><header className="entry-header"><Link to="/"><Brand /></Link><Link to="/students">Student panel</Link></header><main className="student-name-main"><Badge className="light-badge">STEP 1 OF 2 · JOIN A QUIZ</Badge><h1>What should we call you?</h1><p>Use a classroom nickname, or leave this blank if your teacher assigns aliases.</p><Card className="student-name-card"><form onSubmit={continueToCode}><label htmlFor="student-name">Your nickname <span>(optional with teacher-assigned aliases)</span></label><Input id="student-name" autoComplete="nickname" autoFocus value={name} onChange={event => setName(event.target.value)} maxLength={32} placeholder="Type a nickname" /><Button type="submit">Continue to game code <ArrowRight size={18} /></Button></form><div className="student-account-prompt">Want your profile remembered? <Link to={`/student/account${code ? `?code=${encodeURIComponent(code)}` : ""}`}>{account ? "Manage student account" : "Create or sign in"}</Link></div></Card><span className="student-name-note">Next, enter the six-character code from your teacher.</span></main></div>;
 }
 
 export function StudentAccount() {

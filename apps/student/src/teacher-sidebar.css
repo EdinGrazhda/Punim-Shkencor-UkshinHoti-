@@ -1,0 +1,48 @@
+.teacher-logout {
+  display: none;
+}
+
+.teacher-sidebar .sidebar-bottom {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #ffffff2a;
+  padding: 12px 4px 0;
+  margin-top: auto;
+}
+
+.sidebar-profile {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.sidebar-profile > div:last-child {
+  flex: 1;
+}
+
+.teacher-sidebar-logout {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #ffffff35;
+  border-radius: 9px;
+  background: #ffffff0c;
+  color: #e0e6ff;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.teacher-sidebar-logout:hover {
+  background: #ffffff20;
+  color: white;
+}
+
+.teacher-sidebar-logout:focus-visible {
+  outline: 2px solid #a7b2ff;
+  outline-offset: 2px;
+}
